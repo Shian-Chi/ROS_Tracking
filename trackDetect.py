@@ -153,12 +153,9 @@ class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
         # self.subscription = self.create_subscription(Img,"topic",self.holdcb,10)
-        self.GlobalPositionSuub = self.create_subscription(
-            NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.imuSub = self.create_subscription(
-            Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(
-            depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.GlobalPositionSuub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.hold = False
         self.latitude = 0.0
         self.longitude = 0.0

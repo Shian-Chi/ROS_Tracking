@@ -50,3 +50,5 @@ class Parameters():
 
     anglesPerPixel_X = horizontal_FOV / HD_Width
     anglesPerPixel_Y = calcVertical_FOV(CMOS_SIZE, horizontal_FOV) / HD_Height
+
+    filterValue = 256
