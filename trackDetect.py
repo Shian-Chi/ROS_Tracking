@@ -435,7 +435,7 @@ def main():
     spinThread.start()
 
     # Settings directly specified here
-    weights = 'landpad20140411.pt'             # Model weights file path
+    weights = 'weights/landpad20140411.pt'             # Model weights file path
     source = 'rtsp://0.0.0.0:8080/test'       # Data source path
     img_size = 640                    # Image size for inference
     conf_thres = 0.25                 # Object confidence threshold
