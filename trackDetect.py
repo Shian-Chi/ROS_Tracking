@@ -72,7 +72,7 @@ def bbox_filter(xyxy0, xyxy1):
     c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
     c1 = [((xyxy1[0] + xyxy1[2]) / 2), ((xyxy1[1] + xyxy1[3]) / 2)]
 
-    dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c1[1])**2))
+    dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c0[1])**2))
     
     return dis <= 256
 
