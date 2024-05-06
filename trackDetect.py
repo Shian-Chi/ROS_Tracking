@@ -336,11 +336,10 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 
                 xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
                 
+                # Tracking and bbox enable condition
                 if sequentialHits > 4:
-                    if not bbox_filter(xyxy_current, xyxy_previous):
-                        pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = np.array([0,0,0,0], dtype='i4')
-                        print("False")
-                    else:
+                    bbox_filter_status = bbox_filter(xyxy_current, xyxy_previous)
+                    if  bbox_filter_status:
                         pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current
                         print("True")
                 
@@ -348,7 +347,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 print(f"current:{xyxy_current}, previous:{xyxy_previous}")
                 
             if not len(det):
-                print("pppppppppppppppppppppppppppppppp")
                 pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
                 
             # Stream results
@@ -383,7 +381,8 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         print_detection_info(s, sequentialHits, t2, t1, t3)
         
         # tracking
-        pub_img["camera_center"] = PID(max_xyxy)
+        if bbox_filter_status:
+            pub_img["camera_center"] = PID(max_xyxy)
         
         if pub_img["second_detect"] == True and pub_img["hold_status"]:
             print("second detect")
