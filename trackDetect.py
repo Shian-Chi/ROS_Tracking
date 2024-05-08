@@ -347,7 +347,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                         max_xyxy = xyxy
                         
                     if save_txt:  # Write to file
-                        line = (cls, *max_xyxy, conf) if opt.save_conf else (cls, *max_xyxy)  # label format
+                        line = (cls, *max_xyxy, conf) # label format
                         with open(txt_path + '.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
                     
@@ -451,6 +451,7 @@ def main():
     exist_ok = True                   # Overwrite existing files/directories if necessary
     no_trace = False                   # Don't trace the model for optimizations
     save_txt = False                   # Save results to runs/<project>/*.txt
+    save_conf = False
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
