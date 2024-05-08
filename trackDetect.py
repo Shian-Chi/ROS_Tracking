@@ -228,6 +228,26 @@ def update_position_data():
     pub_img["second_detect"] = True
 
 
+def secondDetect():
+    print("second detect and drone is Hold")
+    pub_img["send_info"] = True
+
+    update_position_data()  # Update GPS, IMU, Gimbal data
+
+    tla, tlo = position.groundTargetPostion()
+    pub_img["target_longitude"], pub_img["target_latitude"], pub_img["third_detect"], pub_img["camera_center"] = tlo, tla, True, False
+    delay(2)
+
+def firstDetect():
+    pub_img["send_info"] = pub_img["second_detect"] = True
+    
+    print("camera_center = False")    
+    pub_img["target_longitude"], pub_img["target_latitude"], pub_img["camera_center"] = sub.getLongitude(), sub.getLatitude(), False
+    
+    update_position_data() # Update GPS, IMU, Gimbal data
+    delay(2) # Delay 2s
+    
+    
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
     project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
 
@@ -294,8 +314,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         pred = non_max_suppression(pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
         t3 = time_synchronized()
 
-        
-
         # Process detections
         for i, det in enumerate(pred):  # detections per image
             # Status setting
@@ -349,8 +367,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 
                 xyxy_previous = xyxy_current.copy()
                 print(f"current:{xyxy_current}, previous:{xyxy_previous}")
-                
-            if not len(det):
+            else:
                 pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
                 
             # Stream results
@@ -393,17 +410,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             # Continue detection after descending five meters
             if sequentialHits_status == 1 and sequentialHitsStatus:  # Detect target for the second time
                 if pub_img["camera_center"] :
-                    print("second detect and drone is Hold")
-                    pub_img["send_info"] = True
-
-                    # Update GPS, IMU, Gimbal data
-                    update_position_data()
-
-                    tla, tlo = position.groundTargetPostion()
-                    pub_img["target_longitude"], pub_img["target_latitude"], pub_img["third_detect"] = tlo, tla, True
-                    pub_img["camera_center"] = False
-                    delay(2)
-                    
+                    secondDetect()           
                     while not pub_img["hold_status"]:
                         pub_img["send_info"] = False
                         sequentialHits_status = 2
@@ -415,18 +422,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 print("first detect")
 
             if pub_img["camera_center"] and pub_img["hold_status"]:  # target centered and drone is hold
-                pub_img["send_info"] = pub_img["second_detect"] = True
-                
-                pub_img["target_longitude"], pub_img["target_latitude"] = sub.getLongitude(), sub.getLatitude()
-                
-                print("camera_center = False")
-                pub_img["camera_center"] = False
-                
-                # Update GPS, IMU, Gimbal data
-                update_position_data()
-
-                # Delay 2s
-                delay(2)
+                firstDetect()
                 while not sub.getHold():
                     pub_img["send_info"] = False
                     sequentialHits_status = 1
