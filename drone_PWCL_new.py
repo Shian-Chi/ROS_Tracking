@@ -25,7 +25,7 @@ from tutorial_interfaces.srv import DroneStatus, DroneMissionPath
 from tutorial_interfaces.msg import Img,Bbox,GimbalDegree
 
 drone_point = [] #無人機不固定飛行點
-ipaddr = '10.241.75.0'
+ipaddr = '172.20.10.14'
 port = 80
 
 speed_count = []

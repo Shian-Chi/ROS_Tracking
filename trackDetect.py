@@ -72,7 +72,7 @@ def bbox_filter(xyxy0, xyxy1):
     c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
     c1 = [((xyxy1[0] + xyxy1[2]) / 2), ((xyxy1[1] + xyxy1[3]) / 2)]
 
-    dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c0[1])**2))
+    dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c1[1])**2))
     
     return dis <= 256
 
@@ -228,7 +228,8 @@ def update_position_data():
     pub_img["second_detect"] = True
 
 
-def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, project='runs/detect', name='exp', exist_ok=False, no_trace=False):
+def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
+    project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt):
 
     source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
     save_img = not nosave and not source.endswith('.txt')  # save inference images
@@ -236,7 +237,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
     # Directories
     save_dir = Path(increment_path(Path(project) / name, exist_ok=exist_ok))  # increment run
-    save_dir.mkdir(parents=True, exist_ok=True)  # make dir
+    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Initialize
     set_logging()
@@ -270,7 +271,8 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
     sequentialHits = 0  # The number of consecutive target detections
     sequentialHits_status = 0
-
+    bbox_filter_status = False
+    
     # record xyxy position
     xyxy_previous = [0,0,0,0]
     
@@ -325,11 +327,11 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                         max_conf = conf
                         max_xyxy = xyxy
 
-                    '''
+                    
                     if save_img or view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
-                    '''
+                    
                 
                 xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
                 
@@ -338,7 +340,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     bbox_filter_status = bbox_filter(xyxy_current, xyxy_previous)
                     if  bbox_filter_status:
                         pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current
-                        print("True")
+                        print("bbox_filter_status is True")
                 
                 xyxy_previous = xyxy_current.copy()
                 print(f"current:{xyxy_current}, previous:{xyxy_previous}")
@@ -354,7 +356,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             '''
 
             # Save results (image with detections)
-            '''
+            
             if save_img:
                 if dataset.mode == 'stream' or dataset.mode == 'video':
                     if vid_path != save_path:  # new video
@@ -370,7 +372,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                             save_path += '.mp4'
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer.write(im0)
-            '''
+            
         
         sequentialHits = sequentialHits + 1 if detectFlag else 0
         sequentialHitsStatus = sequentialHits > 4
@@ -431,7 +433,7 @@ def main():
     spinThread.start()
 
     # Settings directly specified here
-    weights = 'weights/landpad20140411.pt'             # Model weights file path
+    weights = 'landpad20140411.pt'             # Model weights file path
     source = 'rtsp://0.0.0.0:8080/test'       # Data source path
     img_size = 640                    # Image size for inference
     conf_thres = 0.25                 # Object confidence threshold
@@ -447,7 +449,7 @@ def main():
     name = 'exp'                      # Name of the run
     exist_ok = True                   # Overwrite existing files/directories if necessary
     no_trace = False                   # Don't trace the model for optimizations
-
+    save_txt = False                    # Save results to *.txt
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
