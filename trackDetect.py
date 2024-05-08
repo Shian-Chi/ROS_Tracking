@@ -229,7 +229,7 @@ def update_position_data():
 
 
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
-    project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=Flase):
+    project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
 
     source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
     save_img = not nosave and not source.endswith('.txt')  # save inference images
@@ -308,7 +308,8 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
             p = Path(p)  # to Path
             save_path = str(save_dir / p.name)  # img.jpg
-
+            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
+            
             if len(det):
                 detectFlag = True
                 
@@ -326,7 +327,11 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     if conf > max_conf:
                         max_conf = conf
                         max_xyxy = xyxy
-
+                        
+                    if save_txt:  # Write to file
+                        line = (cls, *max_xyxy, conf) if opt.save_conf else (cls, *max_xyxy)  # label format
+                        with open(txt_path + '.txt', 'a') as f:
+                            f.write(('%g ' * len(line)).rstrip() % line + '\n')
                     
                     if save_img or view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
