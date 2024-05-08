@@ -449,7 +449,7 @@ def main():
     name = 'exp'                      # Name of the run
     exist_ok = True                   # Overwrite existing files/directories if necessary
     no_trace = False                   # Don't trace the model for optimizations
-    save_txt = False                    # Save results to *.txt
+    save_txt = False                    # Save results to runs/<project>/*.txt
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
