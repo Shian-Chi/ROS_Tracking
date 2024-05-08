@@ -229,7 +229,7 @@ def update_position_data():
 
 
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
-    project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt):
+    project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=Flase):
 
     source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
     save_img = not nosave and not source.endswith('.txt')  # save inference images
@@ -449,7 +449,7 @@ def main():
     name = 'exp'                      # Name of the run
     exist_ok = True                   # Overwrite existing files/directories if necessary
     no_trace = False                   # Don't trace the model for optimizations
-    save_txt = False                    # Save results to runs/<project>/*.txt
+    save_txt = False                   # Save results to runs/<project>/*.txt
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
