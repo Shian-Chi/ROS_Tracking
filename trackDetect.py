@@ -299,7 +299,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     t0 = time.time()
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()  # uint8 to fp16/32
+        img = img.half() # uint8 to fp16
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
@@ -438,20 +438,19 @@ def main():
     source = 'rtsp://0.0.0.0:8080/test'       # Data source path
     img_size = 640                    # Image size for inference
     conf_thres = 0.25                 # Object confidence threshold
-    iou_thres = 0.45                  # IOU threshold for NMS
+    iou_thres = 0.4                  # IOU threshold for NMS
     device = '0'                       # Device to run the inference on, '' for auto-select
     view_img = True                   # Whether to display images during processing
-    nosave = True                    # Whether not to save images/videos
+    nosave = False                    # Whether not to save images/videos
     # Specific classes to detect, None means detect all classes
     classes = None
     agnostic_nms = False              # Apply class-agnostic NMS
     augment = False                   # Augmented inference
     project = 'runs/detect'           # Base directory for saving runs
     name = 'exp'                      # Name of the run
-    exist_ok = True                   # Overwrite existing files/directories if necessary
+    exist_ok = False                   # Overwrite existing files/directories if necessary
     no_trace = False                   # Don't trace the model for optimizations
     save_txt = False                   # Save results to runs/<project>/*.txt
-    save_conf = False
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,

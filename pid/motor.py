@@ -106,7 +106,7 @@ class motorCtrl:
     def bootPosition(self, pos):
         _, angle = self.getEncoderAndAngle()
         pos *= 1.0
-        if angle != pos:
+        while angle != pos:
             move_val = int((pos-angle) * 100)
             self.incrementTurnVal(move_val)
 
