@@ -21,11 +21,11 @@ from enum import Enum
 import binascii
 
 import drone_4g_v2 as drone_TCPIP
-from tutorial_interfaces.srv import DroneStatus, DroneMissionPath
-from tutorial_interfaces.msg import Img,Bbox,GimbalDegree
+from mavros_msgs.srv import DroneStatus, DroneMissionPath
+from mavros_msgs.msg import Img,Bbox,GimbalDegree
 
 drone_point = [] #無人機不固定飛行點
-ipaddr = '172.20.10.14'
+ipaddr = '192.168.0.75'
 port = 80
 
 speed_count = []

@@ -19,13 +19,14 @@ from utils.general import check_img_size, check_imshow, non_max_suppression, sca
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, time_synchronized, TracedModel
 
-from tutorial_interfaces.msg import Img, Bbox
 from pid.pid import PID_Ctrl
 from pid.parameter import Parameters
-from pid.motor import yaw, pitch
+from pid.motor import motorCtrl
 from pid.position import verticalTargetPositioning
 import threading
 
+# from tutorial_interfaces.msg import Img, Bbox
+from mavros_msgs.msg import  Bbox, Img 
 
 pub_img = {"first_detect": False,
            "second_detect": False,
@@ -81,6 +82,10 @@ def radian_conv_degree(Radian):
     return ((Radian / math.pi) * 180)
 
 
+yaw = motorCtrl(1, 0, 90)
+delay(3)
+pitch = motorCtrl(2, 0, 45)
+
 def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
     flag, m_flag1, m_flag2 = False, False, False  # Motor move status
     pidErr = pid.pid_run(frameCenter_X, frameCenter_Y)
@@ -101,8 +106,8 @@ def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
 
     # get Encoder and angle
     global pub_img
-    _, pub_img["motor_yaw"] = yaw.getEncoderAndAngle()
-    _, pub_img["motor_pitch"] = pitch.getEncoderAndAngle()
+    pub_img["motor_yaw"] = yaw.getAngle()
+    pub_img["motor_pitch"] = pitch.getAngle()
     # print(f"{pub_img["motor_yaw"]}, {pub_img["motor_pitch"]}")
 
     if pub_img["motor_pitch"] > 0.0:
@@ -359,6 +364,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
                 
                 # Tracking and bbox enable condition
+                """
                 if sequentialHits > 4:
                     bbox_filter_status = bbox_filter(xyxy_current, xyxy_previous)
                     if  bbox_filter_status:
@@ -369,16 +375,18 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 print(f"current:{xyxy_current}, previous:{xyxy_previous}")
             else:
                 pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
+                """
                 
             # Stream results
-            '''
+            
             if view_img:
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
-            '''
+            
 
             # Save results (image with detections)
             
+            """
             if save_img:
                 if dataset.mode == 'stream' or dataset.mode == 'video':
                     if vid_path != save_path:  # new video
@@ -394,6 +402,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                             save_path += '.mp4'
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer.write(im0)
+            """
             
         
         sequentialHits = sequentialHits + 1 if detectFlag else 0
@@ -402,8 +411,9 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         print_detection_info(s, sequentialHits, t2, t1, t3)
         
         # tracking
-        if bbox_filter_status:
-            pub_img["camera_center"] = PID(max_xyxy)
+        # if bbox_filter_status:
+        #     pub_img["camera_center"] = PID(max_xyxy)
+        pub_img["camera_center"] = PID(max_xyxy)
         
         if pub_img["second_detect"] == True and pub_img["hold_status"]:
             print("second detect")

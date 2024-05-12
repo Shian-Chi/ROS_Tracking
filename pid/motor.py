@@ -103,12 +103,22 @@ class motorCtrl:
                 print("ERROR:", e)
                 return self.info.encoder, self.info.angle
 
-    def bootPosition(self, pos):
+    def getAngle(self):
         _, angle = self.getEncoderAndAngle()
-        pos *= 1.0
-        while angle != pos:
-            move_val = int((pos-angle) * 100)
-            self.incrementTurnVal(move_val)
+        if self.ID == 2:
+            return angle + 45.0
+        else:
+            return angle
+    
+    def bootPosition(self, pos):
+        for _ in range(6):
+            angle = int(self.getAngle()*10000000) / 10000000.0
+            pos *= 1.00000000000000000
+            if angle != pos:
+                move_val = int((pos-angle) * 100)
+                self.incrementTurnVal(move_val)
+            else:
+                break
 
 # Calculate Checksum of received data
 def calc_value_Checksum(value):
@@ -119,9 +129,7 @@ def calc_value_Checksum(value):
 # Calculate Checksum of send data
 def Checksum(value):
     val = np.int32(value)
-    arr = np.array(
-        [val >> 24 & 0xFF, val >> 16 & 0xFF, val >> 8 & 0xFF, val & 0xFF], dtype="uint8"
-    )
+    arr = np.array([val >> 24 & 0xFF, val >> 16 & 0xFF, val >> 8 & 0xFF, val & 0xFF], dtype="uint8")
     total = np.sum(arr)
     check_sum = np.uint8(total & np.uint8(0xFF))
     return np.uint8(check_sum)
@@ -135,7 +143,5 @@ def motorRecv():
     return motor.recv()
 
 
-yaw = motorCtrl(1, 0, 90)
-pitch = motorCtrl(2, 0, 45)
-row = motorCtrl(3, 0, 0)
+
     
