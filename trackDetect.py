@@ -1,11 +1,3 @@
-import rclpy
-from rclpy.node import Node
-from rclpy.qos import ReliabilityPolicy, QoSProfile
-from rclpy.executors import MultiThreadedExecutor
-from sensor_msgs.msg import NavSatFix, Imu
-from mavros_msgs.msg import Altitude
-from transforms3d import euler
-
 import time
 import math
 from pathlib import Path
@@ -19,39 +11,26 @@ from utils.general import check_img_size, check_imshow, non_max_suppression, sca
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, time_synchronized, TracedModel
 
-from pid.pid import PID_Ctrl
-from pid.parameter import Parameters
-from pid.motor import motorCtrl
-from pid.position import verticalTargetPositioning
+from gimbal.pid import PID_Ctrl
+from gimbal.parameter import Parameters
+from gimbal.motor import motorCtrl
+from gimbal.position import verticalTargetPositioning
+from gimbal.timer import timer
+from ros.pub_sub import pub, sub, _spinThread
+from ros.ros_parameter import pub_bbox, pub_img
 import threading
-
-# from tutorial_interfaces.msg import Img, Bbox
-from mavros_msgs.msg import  Bbox, Img 
-
-pub_img = {"first_detect": False,
-           "second_detect": False,
-           "third_detect": False,
-           "camera_center": False,
-           "motor_pitch": 0.0,
-           "motor_yaw": 0.0,
-           "target_latitude": 0.0,
-           "target_longitude": 0.0,
-           "hold_status": False,
-           "send_info": False
-           }
-
-pub_bbox = {'x0': 0,
-        'x1': 0,
-        'y0': 0,
-        'y1': 0
-        }
-
-rclpy.init()
 
 para = Parameters()
 pid = PID_Ctrl()
 position = verticalTargetPositioning()
+pubImgData = pub_img
+pubBboxData = pub_bbox
 
+sequentialHits_status = 0
+sequentialHitsStatus = False
+
+runTime = None
+timer_1 = timer()
 
 def delay(s: int):
     s += 1
@@ -74,17 +53,16 @@ def bbox_filter(xyxy0, xyxy1):
     c1 = [((xyxy1[0] + xyxy1[2]) / 2), ((xyxy1[1] + xyxy1[3]) / 2)]
 
     dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c1[1])**2))
-    
+
     return dis <= 256
 
 
-def radian_conv_degree(Radian):
-    return ((Radian / math.pi) * 180)
+def gimbal_Init():
+    global yaw, pitch
+    yaw = motorCtrl(1, 0, 90)
+    delay(3)
+    pitch = motorCtrl(2, 0, 45)
 
-
-yaw = motorCtrl(1, 0, 90)
-delay(3)
-pitch = motorCtrl(2, 0, 45)
 
 def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
     flag, m_flag1, m_flag2 = False, False, False  # Motor move status
@@ -105,16 +83,19 @@ def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
     # print(f"yaw: {pidErr[0]:.3f}, pitch: {pidErr[1]:.3f}")
 
     # get Encoder and angle
-    global pub_img
-    pub_img["motor_yaw"] = yaw.getAngle()
-    pub_img["motor_pitch"] = pitch.getAngle()
-    # print(f"{pub_img["motor_yaw"]}, {pub_img["motor_pitch"]}")
+    """    
+    global pubImgData
+    pubImgData["motor_yaw"] = yaw.getAngle()
+    pubImgData["motor_pitch"] = pitch.getAngle()
+    # print(f"{pubImgData["motor_yaw"]}, {pubImgData["motor_pitch"]}")
 
-    if pub_img["motor_pitch"] > 0.0:
-        pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] + 45.0)
-    elif pub_img["motor_pitch"] < 0.0:
-        pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] - 45.0)
+    if pubImgData["motor_pitch"] > 0.0:
+        pubImgData["motor_pitch"] = abs(pubImgData["motor_pitch"] + 45.0)
+    elif pubImgData["motor_pitch"] < 0.0:
+        pubImgData["motor_pitch"] = abs(pubImgData["motor_pitch"] - 45.0)
+    """
     flag = m_flag1 and m_flag2
+    
     return flag
 
 
@@ -125,100 +106,6 @@ def PID(xyxy):
     return False
 
 
-class MinimalPublisher(Node):
-    def __init__(self):
-        super().__init__("minimal_publisher")
-        self.imgPublish = self.create_publisher(Img, "img", 10)
-        img_timer_period = 1/35
-        self.img_timer = self.create_timer(img_timer_period, self.img_callback)
-
-        self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
-        bbox_timer_period = 1/10
-        self.img_timer = self.create_timer(
-            bbox_timer_period, self.bbox_callback)
-
-        self.img = Img()
-        self.bbox = Bbox()
-
-    def img_callback(self):
-        self.img.first_detect, self.img.second_detect, self.img.third_detect, self.img.camera_center, self.img.motor_pitch, \
-            self.img.motor_yaw, self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()
-
-        self.imgPublish.publish(self.img)
-
-    def bbox_callback(self):
-        self.bbox.x0 = int(pub_bbox['x0'])
-        self.bbox.y0 = int(pub_bbox['y0'])
-        self.bbox.x1 = int(pub_bbox['x1'])
-        self.bbox.y1 = int(pub_bbox['y1'])
-        self.bboxPublish.publish(self.bbox)
-
-
-class MinimalSubscriber(Node):
-    def __init__(self):
-        super().__init__("minimal_subscriber")
-        # self.subscription = self.create_subscription(Img,"topic",self.holdcb,10)
-        self.GlobalPositionSuub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.hold = False
-        self.latitude = 0.0
-        self.longitude = 0.0
-        self.gps_altitude = 0.0
-        self.pitch = 0.0
-        self.roll = 0.0
-        self.yaw = 0.0
-
-    def holdcb(self, msg):
-        self.hold = pub_img["hold_status"] = msg.hold_status
-
-    def GPcb(self, msg):
-        self.latitude = msg.latitude
-        self.longitude = msg.longitude
-        self.gps_altitude = msg.altitude
-
-    def IMUcb(self, msg: Imu):
-        ned_euler_data = euler.quat2euler([msg.orientation.w,
-                                           msg.orientation.x,
-                                           msg.orientation.y,
-                                           msg.orientation.z])
-        self.pithch = radian_conv_degree(ned_euler_data[0])
-        self.roll = radian_conv_degree(ned_euler_data[1])
-        self.yaw = radian_conv_degree(ned_euler_data[2])
-
-    def getImuPitch(self):
-        return self.pitch
-
-    def getImuYaw(self):
-        return self.yaw
-
-    def getImuRoll(self):
-        return self.roll
-
-    def getHold(self):
-        return pub_img["hold_status"]
-
-    def getLatitude(self):
-        return self.latitude
-
-    def getLongitude(self):
-        return self.longitude
-
-    def getAltitude(self):
-        return self.gps_altitude
-
-
-pub = MinimalPublisher()
-sub = MinimalSubscriber()
-
-
-def _spinThread(pub, sub):
-    executor = MultiThreadedExecutor()
-    executor.add_node(pub)
-    executor.add_node(sub)
-    executor.spin()
-
-
 def update_position_data():
     position.update(
         longitude=sub.getLongitude(),
@@ -227,41 +114,80 @@ def update_position_data():
         imuRoll=sub.getImuRoll(),
         imuPitch=sub.getImuPitch(),
         imuYaw=sub.getImuYaw(),
-        motorYaw=pub_img["motor_yaw"],
-        motorPitch=pub_img["motor_pitch"]
+        motorYaw=pubImgData["motor_yaw"],
+        motorPitch=pubImgData["motor_pitch"]
     )
-    pub_img["second_detect"] = True
+    pubImgData["second_detect"] = True
 
 
 def secondDetect():
     print("second detect and drone is Hold")
-    pub_img["send_info"] = True
+    pubImgData["send_info"] = True
 
     update_position_data()  # Update GPS, IMU, Gimbal data
 
     tla, tlo = position.groundTargetPostion()
-    pub_img["target_longitude"], pub_img["target_latitude"], pub_img["third_detect"], pub_img["camera_center"] = tlo, tla, True, False
+    pubImgData["target_longitude"], pubImgData["target_latitude"], pubImgData["third_detect"], pubImgData["camera_center"] = tlo, tla, True, False
     delay(2)
 
+
 def firstDetect():
-    pub_img["send_info"] = pub_img["second_detect"] = True
-    
-    print("camera_center = False")    
-    pub_img["target_longitude"], pub_img["target_latitude"], pub_img["camera_center"] = sub.getLongitude(), sub.getLatitude(), False
-    
-    update_position_data() # Update GPS, IMU, Gimbal data
-    delay(2) # Delay 2s
-    
-    
-def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
-    project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
+    pubImgData["send_info"] = pubImgData["second_detect"] = True
+
+    print("camera_center = False")
+    pubImgData["target_longitude"], pubImgData["target_latitude"], pubImgData["camera_center"] = sub.getLongitude(), sub.getLatitude(), False
+
+    update_position_data()  # Update GPS, IMU, Gimbal data
+    delay(2)  # Delay 2s
+
+
+def setDataStatus(HitsStatus):
+    if pubImgData["second_detect"] == True and pubImgData["hold_status"]:
+        print("second detect")
+        # Continue detection after descending five meters
+        if sequentialHits_status == 1 and HitsStatus:  # Detect target for the second time
+            if pubImgData["camera_center"]:
+                secondDetect()
+                while not pubImgData["hold_status"]:
+                    pubImgData["send_info"] = False
+                    sequentialHits_status = 2
+
+    else:  # first_detect == False
+        # Target detected for the first time and Aim at targets
+        if sequentialHits_status == 0 and HitsStatus:  # Detect target for the first time
+            pubImgData["first_detect"] = True
+            print("first detect")
+
+        # target centered and drone is hold
+        if pubImgData["camera_center"] and pubImgData["hold_status"]:
+            firstDetect()
+            while not sub.getHold():
+                pubImgData["send_info"] = False
+                sequentialHits_status = 1
+
+
+def distance(xyxy0, xyxy1):
+    c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
+    c1 = [((xyxy1[0] + xyxy1[2]) / 2), ((xyxy1[1] + xyxy1[3]) / 2)]
+
+    return math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c1[1])**2))
+
+def save_time(data):
+    filename = "time.txt"
+    with open(filename, 'a') as file:
+        # 寫入一些文本行
+        file.write(f"{data}\n")
+
+
+def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False,
+           project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
 
     source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
     save_img = not nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
 
     # Directories
-    save_dir = Path(increment_path(Path(project) / name, exist_ok=exist_ok))  # increment run
+    save_dir = Path(increment_path(Path(project) / name,exist_ok=exist_ok))  # increment run
     (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Initialize
@@ -295,16 +221,16 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
 
     sequentialHits = 0  # The number of consecutive target detections
-    sequentialHits_status = 0
+    
     bbox_filter_status = False
-    
+
     # record xyxy position
-    xyxy_previous = [0,0,0,0]
-    
+    xyxy_previous = [0, 0, 0, 0]
+
     t0 = time.time()
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
-        img = img.half() # uint8 to fp16
+        img = img.half()  # uint8 to fp16
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
@@ -325,17 +251,18 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             max_conf = -1  # Variable to store the maximum confidence value
             max_xyxy = None  # Variable to store the xyxy with the maximum confidence
             detectFlag = False
-            
+
             if webcam:
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
 
             p = Path(p)  # to Path
             save_path = str(save_dir / p.name)  # img.jpg
             txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
-            
+
             if len(det):
+                runTime = f"{timer_1.start_timer()}"
                 detectFlag = True
-                
+
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
@@ -350,42 +277,38 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     if conf > max_conf:
                         max_conf = conf
                         max_xyxy = xyxy
-                        
+
                     if save_txt:  # Write to file
-                        line = (cls, *max_xyxy, conf) # label format
+                        line = (cls, *max_xyxy, conf)  # label format
                         with open(txt_path + '.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
-                    
+
                     if save_img or view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
-                    
-                
+
                 xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
-                
+
                 # Tracking and bbox enable condition
                 """
                 if sequentialHits > 4:
                     bbox_filter_status = bbox_filter(xyxy_current, xyxy_previous)
                     if  bbox_filter_status:
-                        pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current
+                        pubBboxData["x0"], pubBboxData['y0'], pubBboxData['x1'], pubBboxData["y1"] = xyxy_current
                         print("bbox_filter_status is True")
                 
                 xyxy_previous = xyxy_current.copy()
                 print(f"current:{xyxy_current}, previous:{xyxy_previous}")
             else:
-                pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
+                pubBboxData["x0"] = pubBboxData['y0'] = pubBboxData['x1'] = pubBboxData["y1"] = 0
                 """
                 
             # Stream results
-            
             if view_img:
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
-            
 
             # Save results (image with detections)
-            
             """
             if save_img:
                 if dataset.mode == 'stream' or dataset.mode == 'video':
@@ -403,42 +326,24 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer.write(im0)
             """
-            
-        
         sequentialHits = sequentialHits + 1 if detectFlag else 0
         sequentialHitsStatus = sequentialHits > 4
-        
+
         print_detection_info(s, sequentialHits, t2, t1, t3)
-        
+
         # tracking
         # if bbox_filter_status:
-        #     pub_img["camera_center"] = PID(max_xyxy)
-        pub_img["camera_center"] = PID(max_xyxy)
-        
-        if pub_img["second_detect"] == True and pub_img["hold_status"]:
-            print("second detect")
-            # Continue detection after descending five meters
-            if sequentialHits_status == 1 and sequentialHitsStatus:  # Detect target for the second time
-                if pub_img["camera_center"] :
-                    secondDetect()           
-                    while not pub_img["hold_status"]:
-                        pub_img["send_info"] = False
-                        sequentialHits_status = 2
+        #     pubImgData["camera_center"] = PID(max_xyxy)
+        pubImgData["camera_center"] = PID(max_xyxy)
+        if pubImgData["camera_center"]:
+            runTime += f"{timer_1.stop_timer()}"
+        setDataStatus(sequentialHitsStatus)
 
-        else:  # first_detect == False
-            # Target detected for the first time and Aim at targets
-            if sequentialHits_status == 0 and sequentialHitsStatus:  # Detect target for the first time
-                pub_img["first_detect"] = True
-                print("first detect")
-
-            if pub_img["camera_center"] and pub_img["hold_status"]:  # target centered and drone is hold
-                firstDetect()
-                while not sub.getHold():
-                    pub_img["send_info"] = False
-                    sequentialHits_status = 1
 
 
 def main():
+    gimbal_Init()
+
     # ROS2
     spinThread = threading.Thread(target=_spinThread, args=(pub, sub))
     spinThread.start()
@@ -448,7 +353,7 @@ def main():
     source = 'rtsp://0.0.0.0:8080/test'       # Data source path
     img_size = 640                    # Image size for inference
     conf_thres = 0.25                 # Object confidence threshold
-    iou_thres = 0.4                  # IOU threshold for NMS
+    iou_thres = 0.45                  # IOU threshold for NMS
     device = '0'                       # Device to run the inference on, '' for auto-select
     view_img = True                   # Whether to display images during processing
     nosave = False                    # Whether not to save images/videos
