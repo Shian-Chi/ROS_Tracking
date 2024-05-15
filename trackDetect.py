@@ -52,15 +52,16 @@ para = Parameters()
 pid = PID_Ctrl()
 position = verticalTargetPositioning()
 
-
+fps =0
 def delay(s: int):
     s += 1
     for i in range(1, s):
-        print(f"{i}s")
+        print(f"delay:{i}s")
         time.sleep(1)
 
 
 def print_detection_info(s, detect_count, end_inference, start_inference, end_nms):
+    global fps
     inferenceTime = 1E3 * (end_inference - start_inference)
     NMS_Time = 1E3 * (end_nms - end_inference)
     total_time = inferenceTime + NMS_Time
@@ -84,7 +85,29 @@ def radian_conv_degree(Radian):
 
 yaw = motorCtrl(1, 0, 90)
 delay(3)
-pitch = motorCtrl(2, 0, 45)
+pitch = motorCtrl(2, 90, 45)
+
+
+def distance(x1, y1, x2, y2):
+    """
+    Calculate the Euclidean distance between two points (x1, y1) and (x2, y2).
+    """
+    return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+t = 0
+tt=0
+def trackTimeAndDis(cs, t1, t2, t3, xc1, yc1, xc2, yc2):
+    global t, tt
+    t += ((1E3 * (t2 - t1)) + (1E3 * (t3 - t2)))
+    if cs:
+        print("Track Time:", t)
+        with open("track_time.txt", 'a') as f_t:
+            f_t.write(f"{tt} {t:.2f} {pid.error[0]:.2f} {pid.error[1]:.2f} {distance(xc1, yc1, xc2, yc2):.2f}\n")
+        t = 0
+
+    tt += t
+    return t
+
 
 def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
     flag, m_flag1, m_flag2 = False, False, False  # Motor move status
@@ -152,7 +175,6 @@ class MinimalPublisher(Node):
         self.bbox.x1 = int(pub_bbox['x1'])
         self.bbox.y1 = int(pub_bbox['y1'])
         self.bboxPublish.publish(self.bbox)
-
 
 class MinimalSubscriber(Node):
     def __init__(self):
@@ -299,10 +321,14 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     bbox_filter_status = False
     
     # record xyxy position
-    xyxy_previous = [0,0,0,0]
-    
+    xyxy_previous = [0, 0, 0, 0]
+    xyxy_current = [0, 0, 0, 0]
     t0 = time.time()
+    
+    yolo_count = 0
+    
     for path, img, im0s, vid_cap in dataset:
+        yolo_count += 1
         img = torch.from_numpy(img).to(device)
         img = img.half() # uint8 to fp16
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -376,11 +402,16 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             else:
                 pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
                 """
-                
+            else:
+                xyxy_current = xyxy_previous = [0, 0, 0, 0]
             # Stream results
-            
-            if view_img:
+            if view_img:                
+                im0 = cv2.putText(im0,"yaw : "+ str(yaw.getAngle()),(50,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,0),2,cv2.LINE_AA)
+                im0 = cv2.putText(im0,"pitch : " + str(pitch.getAngle()),(50,100),cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,0),2,cv2.LINE_AA)
+                im0 = cv2.putText(im0,"fps : "+str(int(fps)),(50,150),cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,0),2,cv2.LINE_AA)
+                img_path = '/home/ubuntu/yolo/yolo_tracking/runs/imgs/img00'+ str(yolo_count)+'.png'
                 cv2.imshow(str(p), im0)
+                cv2.imwrite(img_path,im0)
                 cv2.waitKey(1)  # 1 millisecond
             
 
@@ -413,9 +444,19 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         # tracking
         # if bbox_filter_status:
         #     pub_img["camera_center"] = PID(max_xyxy)
+        
         pub_img["camera_center"] = PID(max_xyxy)
         
-        if pub_img["second_detect"] == True and pub_img["hold_status"]:
+        trackTimeAndDis(pub_img["camera_center"], t1, t2, t3, \
+                        (xyxy_current[2] + xyxy_current[0]) / 2, (xyxy_current[3] + xyxy_current[1]) / 2, \
+                        (xyxy_previous[2] + xyxy_previous[0]) / 2, (xyxy_previous[3] + xyxy_previous[1]) / 2 \
+                        )
+        xyxy_previous = xyxy_current.copy()
+        
+        # if pub_img["camera_center"] and detectFlag:
+        #     delay(1)
+            
+"""        if pub_img["second_detect"] == True and pub_img["hold_status"]:
             print("second detect")
             # Continue detection after descending five meters
             if sequentialHits_status == 1 and sequentialHitsStatus:  # Detect target for the second time
@@ -435,7 +476,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 firstDetect()
                 while not sub.getHold():
                     pub_img["send_info"] = False
-                    sequentialHits_status = 1
+                    sequentialHits_status = 1"""
 
 
 def main():
