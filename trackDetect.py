@@ -132,16 +132,15 @@ class MinimalSubscriber(Node):
         return self.gps_altitude
 
 
-pub = MinimalPublisher()
-sub = MinimalSubscriber()
-
-
 def _spinThread(pub, sub):
     executor = MultiThreadedExecutor()
     executor.add_node(pub)
     executor.add_node(sub)
     executor.spin()
     
+pub = MinimalPublisher()
+sub = MinimalSubscriber()
+
     
 para = Parameters()
 pid = PID_Ctrl()
@@ -218,6 +217,7 @@ def secondDetect():
     pub_img["target_longitude"], pub_img["target_latitude"], pub_img["third_detect"], pub_img["camera_center"] = tlo, tla, True, False
     time.sleep(2)
 
+
 def firstDetect():
     pub_img["send_info"] = pub_img["second_detect"] = True
     
@@ -226,6 +226,10 @@ def firstDetect():
     
     update_position_data() # Update GPS, IMU, Gimbal data
     time.sleep(2) # Delay 2s
+    
+
+stop_thread = False
+def imbbox(name, img):
     
 
 def print_detection_info(s, detect_count, end_inference, start_inference, end_nms):
