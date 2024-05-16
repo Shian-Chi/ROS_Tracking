@@ -281,8 +281,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     colors = [[np.random.randint(0, 255) for _ in range(3)] for _ in names]
 
     # Run inference
-    if device.type != 'cpu':
-        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+    model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
 
     sequentialHits = 0  # The number of consecutive target detections
     sequentialHits_status = 0
