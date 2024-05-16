@@ -259,7 +259,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     # Initialize
     set_logging()
     device = select_device(device)
-    half = device.type != 'cpu'  # half precision only supported on CUDA
 
     # Load model
     model = attempt_load(weights, map_location=device)  # load FP32 model
@@ -269,8 +268,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     if trace:
         model = TracedModel(model, device, img_size)
 
-    if half:
-        model.half()  # to FP16
+    model.half()  # to FP16
 
     # Set Dataloader
     vid_path, vid_writer = None, None
