@@ -4,7 +4,7 @@ from rclpy.qos import ReliabilityPolicy, QoSProfile
 from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import NavSatFix, Imu
 from mavros_msgs.msg import Altitude
-from transforms3d import euler
+from transforms3d import euler 
 
 import time
 import math
@@ -47,75 +47,6 @@ pub_bbox = {'x0': 0,
         }
 
 rclpy.init()
-
-para = Parameters()
-pid = PID_Ctrl()
-position = verticalTargetPositioning()
-
-
-def print_detection_info(s, detect_count, end_inference, start_inference, end_nms):
-    inferenceTime = 1E3 * (end_inference - start_inference)
-    NMS_Time = 1E3 * (end_nms - end_inference)
-    total_time = inferenceTime + NMS_Time
-    fps = 1E3 / total_time
-    print("success detect count:", detect_count)
-    print(f"{s}Done. ({inferenceTime:.1f}ms) Inference, ({NMS_Time:.1f}ms) NMS, FPS:{fps:.1f}\n")
-
-
-def bbox_filter(xyxy0, xyxy1):
-    c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
-    c1 = [((xyxy1[0] + xyxy1[2]) / 2), ((xyxy1[1] + xyxy1[3]) / 2)]
-
-    dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c1[1])**2))
-    
-    return dis <= 256
-
-
-def radian_conv_degree(Radian):
-    return ((Radian / math.pi) * 180)
-
-
-yaw = motorCtrl(1, 0, 90)
-time.sleep(2)
-pitch = motorCtrl(2, 0, 45)
-
-def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
-    flag, m_flag1, m_flag2 = False, False, False  # Motor move status
-    pidErr = pid.pid_run(frameCenter_X, frameCenter_Y)
-    # Motor rotation
-    if abs(pidErr[0]) != 0:
-        yaw.incrementTurnVal(int(pidErr[0]*100))
-        m_flag1 = False
-    else:
-        m_flag1 = True
-
-    if abs(pidErr[1]) != 0:
-        pitch.incrementTurnVal(int(pidErr[1]*100))
-        m_flag2 = False
-    else:
-        m_flag2 = True
-
-    # print(f"yaw: {pidErr[0]:.3f}, pitch: {pidErr[1]:.3f}")
-
-    # get Encoder and angle
-    global pub_img
-    pub_img["motor_yaw"] = yaw.getAngle()
-    pub_img["motor_pitch"] = pitch.getAngle()
-    # print(f"{pub_img["motor_yaw"]}, {pub_img["motor_pitch"]}")
-
-    if pub_img["motor_pitch"] > 0.0:
-        pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] + 45.0)
-    elif pub_img["motor_pitch"] < 0.0:
-        pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] - 45.0)
-    flag = m_flag1 and m_flag2
-    return flag
-
-
-def PID(xyxy):
-    if xyxy is not None:
-        # Calculate the center point of the image frame
-        return motorPID_Ctrl(((xyxy[0] + xyxy[2]) / 2).item(), ((xyxy[1] + xyxy[3]) / 2).item())
-    return False
 
 
 class MinimalPublisher(Node):
@@ -210,6 +141,57 @@ def _spinThread(pub, sub):
     executor.add_node(pub)
     executor.add_node(sub)
     executor.spin()
+    
+    
+para = Parameters()
+pid = PID_Ctrl()
+position = verticalTargetPositioning()
+
+yaw = motorCtrl(1, 0, 90)
+time.sleep(2)
+pitch = motorCtrl(2, 0, 45)
+
+def radian_conv_degree(Radian):
+    return ((Radian / math.pi) * 180)
+
+
+def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
+    flag, m_flag1, m_flag2 = False, False, False  # Motor move status
+    pidErr = pid.pid_run(frameCenter_X, frameCenter_Y)
+    # Motor rotation
+    if abs(pidErr[0]) != 0:
+        yaw.incrementTurnVal(int(pidErr[0]*100))
+        m_flag1 = False
+    else:
+        m_flag1 = True
+
+    if abs(pidErr[1]) != 0:
+        pitch.incrementTurnVal(int(pidErr[1]*100))
+        m_flag2 = False
+    else:
+        m_flag2 = True
+
+    # print(f"yaw: {pidErr[0]:.3f}, pitch: {pidErr[1]:.3f}")
+
+    # get Encoder and angle
+    global pub_img
+    pub_img["motor_yaw"] = yaw.getAngle()
+    pub_img["motor_pitch"] = pitch.getAngle()
+    # print(f"{pub_img["motor_yaw"]}, {pub_img["motor_pitch"]}")
+
+    if pub_img["motor_pitch"] > 0.0:
+        pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] + 45.0)
+    elif pub_img["motor_pitch"] < 0.0:
+        pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] - 45.0)
+    flag = m_flag1 and m_flag2
+    return flag
+
+
+def PID(xyxy):
+    if xyxy is not None:
+        # Calculate the center point of the image frame
+        return motorPID_Ctrl(((xyxy[0] + xyxy[2]) / 2).item(), ((xyxy[1] + xyxy[3]) / 2).item())
+    return False
 
 
 def update_position_data():
@@ -245,6 +227,24 @@ def firstDetect():
     update_position_data() # Update GPS, IMU, Gimbal data
     time.sleep(2) # Delay 2s
     
+
+def print_detection_info(s, detect_count, end_inference, start_inference, end_nms):
+    inferenceTime = 1E3 * (end_inference - start_inference)
+    NMS_Time = 1E3 * (end_nms - end_inference)
+    total_time = inferenceTime + NMS_Time
+    fps = 1E3 / total_time
+    print("success detect count:", detect_count)
+    print(f"{s}Done. ({inferenceTime:.1f}ms) Inference, ({NMS_Time:.1f}ms) NMS, FPS:{fps:.1f}\n")
+
+
+def bbox_filter(xyxy0, xyxy1):
+    c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
+    c1 = [((xyxy1[0] + xyxy1[2]) / 2), ((xyxy1[1] + xyxy1[3]) / 2)]
+
+    dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c1[1])**2))
+    
+    return dis <= 256
+
     
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False, \
     project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
