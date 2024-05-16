@@ -28,6 +28,18 @@ import threading
 # from tutorial_interfaces.msg import Img, Bbox
 from mavros_msgs.msg import  Bbox, Img 
 
+import signal
+import sys
+
+def signal_handler(sig, frame):
+    global stop_thread
+    stop_thread = True
+    imbbox_show.join()  # 等待線程結束
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+    
 pub_img = {"first_detect": False,
            "second_detect": False,
            "third_detect": False,
@@ -229,9 +241,17 @@ def firstDetect():
     
 
 stop_thread = False
-def imbbox(name, img):
+show_status = check_imshow()
+def imbbox(name, im):
+    while not stop_thread:
+        cv2.imshow(name, im)
+        cv2.waitKey(1)  # 1 millisecond
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    StopIteration
+    cv2.destroyAllWindows()
     
-
+    
 def print_detection_info(s, detect_count, end_inference, start_inference, end_nms):
     inferenceTime = 1E3 * (end_inference - start_inference)
     NMS_Time = 1E3 * (end_nms - end_inference)
@@ -253,7 +273,7 @@ def bbox_filter(xyxy0, xyxy1):
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False, \
     project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
 
-    source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
+    source, weights, view_img, imgsz, trace = source, weights, check_imshow(), img_size, not no_trace
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
 
     # Directories
@@ -371,9 +391,11 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 
             # Stream results
             
-            if view_img:
-                cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
+            if view_img and show_status:
+                global imbbox_show
+                imbbox_show = threading.Thread(target=imbbox, args=(str(p), im0))
+                imbbox_show.start()
+                show_status = False
             
         
         sequentialHits = sequentialHits + 1 if detectFlag else 0
