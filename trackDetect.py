@@ -246,11 +246,10 @@ def firstDetect():
     time.sleep(2) # Delay 2s
     
     
-def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
+def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False, \
     project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
 
     source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
-    save_img = not nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
 
     # Directories
@@ -349,7 +348,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                         with open(txt_path + '.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
                     
-                    if save_img or view_img:  # Add bbox to image
+                    if view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
                     
@@ -375,27 +374,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             if view_img:
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
-            
-
-            # Save results (image with detections)
-            
-            """
-            if save_img:
-                if dataset.mode == 'stream' or dataset.mode == 'video':
-                    if vid_path != save_path:  # new video
-                        vid_path = save_path
-                        if isinstance(vid_writer, cv2.VideoWriter):
-                            vid_writer.release()  # release previous video writer
-                        if vid_cap:  # video
-                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        else:  # stream
-                            fps, w, h = 30, im0.shape[1], im0.shape[0]
-                            save_path += '.mp4'
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                    vid_writer.write(im0)
-            """
             
         
         sequentialHits = sequentialHits + 1 if detectFlag else 0
@@ -444,7 +422,6 @@ def main():
     iou_thres = 0.4                  # IOU threshold for NMS
     device = '0'                       # Device to run the inference on, '' for auto-select
     view_img = True                   # Whether to display images during processing
-    nosave = False                    # Whether not to save images/videos
     # Specific classes to detect, None means detect all classes
     classes = None
     agnostic_nms = False              # Apply class-agnostic NMS
@@ -457,7 +434,7 @@ def main():
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
-               nosave, classes, agnostic_nms, augment, project, name, exist_ok, no_trace)
+               classes, agnostic_nms, augment, project, name, exist_ok, no_trace)
 
 
 if __name__ == '__main__':
