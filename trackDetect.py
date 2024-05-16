@@ -53,13 +53,6 @@ pid = PID_Ctrl()
 position = verticalTargetPositioning()
 
 
-def delay(s: int):
-    s += 1
-    for i in range(1, s):
-        print(f"{i}s")
-        time.sleep(1)
-
-
 def print_detection_info(s, detect_count, end_inference, start_inference, end_nms):
     inferenceTime = 1E3 * (end_inference - start_inference)
     NMS_Time = 1E3 * (end_nms - end_inference)
@@ -83,7 +76,7 @@ def radian_conv_degree(Radian):
 
 
 yaw = motorCtrl(1, 0, 90)
-delay(3)
+time.sleep(2)
 pitch = motorCtrl(2, 0, 45)
 
 def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
@@ -241,7 +234,7 @@ def secondDetect():
 
     tla, tlo = position.groundTargetPostion()
     pub_img["target_longitude"], pub_img["target_latitude"], pub_img["third_detect"], pub_img["camera_center"] = tlo, tla, True, False
-    delay(2)
+    time.sleep(2)
 
 def firstDetect():
     pub_img["send_info"] = pub_img["second_detect"] = True
@@ -250,7 +243,7 @@ def firstDetect():
     pub_img["target_longitude"], pub_img["target_latitude"], pub_img["camera_center"] = sub.getLongitude(), sub.getLatitude(), False
     
     update_position_data() # Update GPS, IMU, Gimbal data
-    delay(2) # Delay 2s
+    time.sleep(2) # Delay 2s
     
     
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
