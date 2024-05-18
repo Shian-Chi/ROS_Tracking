@@ -1,10 +1,13 @@
+import multiprocessing.queues
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import ReliabilityPolicy, QoSProfile
 from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import NavSatFix, Imu
 from mavros_msgs.msg import Altitude
-from transforms3d import euler 
+from transforms3d import euler
+from tutorial_interfaces.msg import Img, Bbox
+# from mavros_msgs.msg import  Bbox, Img
 
 import time
 import math
@@ -23,23 +26,17 @@ from pid.pid import PID_Ctrl
 from pid.parameter import Parameters
 from pid.motor import motorCtrl
 from pid.position import verticalTargetPositioning
+
 import threading
+import queue
 
-# from tutorial_interfaces.msg import Img, Bbox
-from mavros_msgs.msg import  Bbox, Img 
+bbox_queue = queue.Queue()
 
-import signal
-import sys
 
-def signal_handler(sig, frame):
-    global stop_thread
-    stop_thread = True
-    imbbox_show.join()  # 等待線程結束
-    sys.exit(0)
+def distance(x0: 0.0, y0: 0.0, z0: 0.0, x1: 0.0, y1: 0.0, z1: 0.0, x2: 0.0, y2: 0.0, z2: 0.0):
+    return math.sqrt(((x1 - x0)**2) + ((y1 - y0)**2) + ((z1 - z0)**2))
 
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
-    
+
 pub_img = {"first_detect": False,
            "second_detect": False,
            "third_detect": False,
@@ -53,10 +50,10 @@ pub_img = {"first_detect": False,
            }
 
 pub_bbox = {'x0': 0,
-        'x1': 0,
-        'y0': 0,
-        'y1': 0
-        }
+            'x1': 0,
+            'y0': 0,
+            'y1': 0
+            }
 
 rclpy.init()
 
@@ -94,9 +91,12 @@ class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
         # self.subscription = self.create_subscription(Img,"topic",self.holdcb,10)
-        self.GlobalPositionSuub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.GlobalPositionSuub = self.create_subscription(
+            NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.imuSub = self.create_subscription(
+            Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(
+            depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.hold = False
         self.latitude = 0.0
         self.longitude = 0.0
@@ -149,11 +149,47 @@ def _spinThread(pub, sub):
     executor.add_node(pub)
     executor.add_node(sub)
     executor.spin()
-    
+
+
 pub = MinimalPublisher()
 sub = MinimalSubscriber()
 
+def haversine_distance(lat1, lon1, alt1, lat2, lon2, alt2):
+    # 地球半徑，單位為公里
+    R = 6371.0
     
+    # 將經緯度從度轉換為弧度
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    
+    # 經緯度差
+    delta_lat = lat2 - lat1
+    delta_lon = lon2 - lon1
+    
+    # 哈弗辛公式
+    a = math.sin(delta_lat / 2.0)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2.0)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    
+    # 從經緯度計算二維地表距離
+    distance_2d = R * c
+    
+    # 計算高度差
+    delta_alt = alt2 - alt1
+    
+    # 使用畢氏定理計算三維空間中的距離
+    distance_3d = math.sqrt(distance_2d**2 + delta_alt**2)
+    
+    return distance_3d
+
+class timerTask(Node):
+    def __init__(self):
+        self.betweenStatus = False
+        self.gpsPosition = [],[]
+        self.gimbalAngle = [],[]
+        self.img_timer = self.caleDis(1, self.betweenDis)
+
+    def betweenDis(self, x0, y0, z0, x1, y1, z1, x2, y2, z2):
+        return haversine_distance(x0, y0, z0, x1, y1, z1, x2, y2, z2) 
+        
 para = Parameters()
 pid = PID_Ctrl()
 position = verticalTargetPositioning()
@@ -161,6 +197,7 @@ position = verticalTargetPositioning()
 yaw = motorCtrl(1, 0, 90)
 time.sleep(2)
 pitch = motorCtrl(2, 0, 45)
+
 
 def radian_conv_degree(Radian):
     return ((Radian / math.pi) * 180)
@@ -232,26 +269,15 @@ def secondDetect():
 
 def firstDetect():
     pub_img["send_info"] = pub_img["second_detect"] = True
-    
-    print("camera_center = False")    
-    pub_img["target_longitude"], pub_img["target_latitude"], pub_img["camera_center"] = sub.getLongitude(), sub.getLatitude(), False
-    
-    update_position_data() # Update GPS, IMU, Gimbal data
-    time.sleep(2) # Delay 2s
-    
 
-stop_thread = False
-show_status = check_imshow()
-def imbbox(name, im):
-    while not stop_thread:
-        cv2.imshow(name, im)
-        cv2.waitKey(1)  # 1 millisecond
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    StopIteration
-    cv2.destroyAllWindows()
-    
-    
+    print("camera_center = False")
+    pub_img["target_longitude"], pub_img["target_latitude"], pub_img["camera_center"] = sub.getLongitude(
+    ), sub.getLatitude(), False
+
+    update_position_data()  # Update GPS, IMU, Gimbal data
+    time.sleep(2)  # Delay 2s
+
+
 def print_detection_info(s, detect_count, end_inference, start_inference, end_nms):
     inferenceTime = 1E3 * (end_inference - start_inference)
     NMS_Time = 1E3 * (end_nms - end_inference)
@@ -265,20 +291,28 @@ def bbox_filter(xyxy0, xyxy1):
     c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
     c1 = [((xyxy1[0] + xyxy1[2]) / 2), ((xyxy1[1] + xyxy1[3]) / 2)]
 
-    dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c1[1])**2))
-    
+    dis = distance(c1[0], c0[0], c1[1], c1[1])
     return dis <= 256
 
-    
-def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False, \
-    project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
 
-    source, weights, view_img, imgsz, trace = source, weights, check_imshow(), img_size, not no_trace
-    webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
+def txt_save(p, xyxy, conf, cls):
+    line = (cls, *xyxy, conf)  # label format
+    with open(p + '.txt', 'a') as f:
+        f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
+
+def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False,
+           project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
+
+    source, weights, view_img, imgsz, trace = source, weights, check_imshow(
+    ), img_size, not no_trace
+    webcam = source.isnumeric() or source.endswith('.txt') or source.lower(
+    ).startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
     # Directories
-    save_dir = Path(increment_path(Path(project) / name, exist_ok=exist_ok))  # increment run
-    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+    save_dir = Path(increment_path(Path(project) / name,
+                    exist_ok=exist_ok))  # increment run
+    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True,
+                                                          exist_ok=True)  # make dir
 
     # Initialize
     set_logging()
@@ -305,19 +339,21 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     colors = [[np.random.randint(0, 255) for _ in range(3)] for _ in names]
 
     # Run inference
-    model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+    model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(
+        next(model.parameters())))  # run once
 
     sequentialHits = 0  # The number of consecutive target detections
     sequentialHits_status = 0
     bbox_filter_status = False
-    
+
     # record xyxy position
-    xyxy_previous = [0,0,0,0]
-    
+    xyxy_previous = [0, 0, 0, 0]
+    xyxy_current = [0, 0, 0, 0]
+
     t0 = time.time()
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
-        img = img.half() # uint8 to fp16
+        img = img.half()  # uint8 to fp16
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
@@ -329,7 +365,8 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         t2 = time_synchronized()
 
         # Apply NMS
-        pred = non_max_suppression(pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
+        pred = non_max_suppression(
+            pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
         t3 = time_synchronized()
 
         # Process detections
@@ -338,18 +375,21 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             max_conf = -1  # Variable to store the maximum confidence value
             max_xyxy = None  # Variable to store the xyxy with the maximum confidence
             detectFlag = False
-            
+
             if webcam:
-                p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
+                p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(
+                ), dataset.count
 
             p = Path(p)  # to Path
-            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
-            
+            txt_path = str(save_dir / 'labels' / p.stem) + \
+                ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
+
             if len(det):
                 detectFlag = True
-                
+
                 # Rescale boxes from img_size to im0 size
-                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
+                det[:, :4] = scale_coords(
+                    img.shape[2:], det[:, :4], im0.shape).round()
 
                 # Print results
                 for c in det[:, -1].unique():
@@ -362,73 +402,31 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     if conf > max_conf:
                         max_conf = conf
                         max_xyxy = xyxy
-                        
+
                     if save_txt:  # Write to file
-                        line = (cls, *max_xyxy, conf) # label format
-                        with open(txt_path + '.txt', 'a') as f:
-                            f.write(('%g ' * len(line)).rstrip() % line + '\n')
-                    
+                        txt_save(txt_path, max_xyxy, max_conf)
+
                     if view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
-                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
-                    
-                
-                xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
-                
-                # Tracking and bbox enable condition
-                """
-                if sequentialHits > 4:
-                    bbox_filter_status = bbox_filter(xyxy_current, xyxy_previous)
-                    if  bbox_filter_status:
-                        pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current
-                        print("bbox_filter_status is True")
-                
-                xyxy_previous = xyxy_current.copy()
-                print(f"current:{xyxy_current}, previous:{xyxy_previous}")
-            else:
-                pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
-                """
-                
+                        plot_one_box(max_xyxy, im0, label=label,
+                                     color=colors[int(cls)], line_thickness=3)
+
+                xyxy_current = np.array([t.item()
+                                        for t in max_xyxy], dtype='i4')
+
             # Stream results
-            
-            if view_img and show_status:
-                global imbbox_show
-                imbbox_show = threading.Thread(target=imbbox, args=(str(p), im0))
-                imbbox_show.start()
-                show_status = False
-            
-        
+            if view_img:
+                cv2.imshow(name, im0)
+                cv2.waitKey(1)  # 1 millisecond
+
         sequentialHits = sequentialHits + 1 if detectFlag else 0
         sequentialHitsStatus = sequentialHits > 4
-        
+
         print_detection_info(s, sequentialHits, t2, t1, t3)
-        
+
         # tracking
-        # if bbox_filter_status:
-        #     pub_img["camera_center"] = PID(max_xyxy)
-        pub_img["camera_center"] = PID(max_xyxy)
-        
-        if pub_img["second_detect"] == True and pub_img["hold_status"]:
-            print("second detect")
-            # Continue detection after descending five meters
-            if sequentialHits_status == 1 and sequentialHitsStatus:  # Detect target for the second time
-                if pub_img["camera_center"] :
-                    secondDetect()           
-                    while not pub_img["hold_status"]:
-                        pub_img["send_info"] = False
-                        sequentialHits_status = 2
-
-        else:  # first_detect == False
-            # Target detected for the first time and Aim at targets
-            if sequentialHits_status == 0 and sequentialHitsStatus:  # Detect target for the first time
-                pub_img["first_detect"] = True
-                print("first detect")
-
-            if pub_img["camera_center"] and pub_img["hold_status"]:  # target centered and drone is hold
-                firstDetect()
-                while not sub.getHold():
-                    pub_img["send_info"] = False
-                    sequentialHits_status = 1
+        if bbox_filter:
+            pub_img["camera_center"] = PID(max_xyxy)
 
 
 def main():
@@ -437,8 +435,8 @@ def main():
     spinThread.start()
 
     # Settings directly specified here
-    weights = 'landpad20140411.pt'             # Model weights file path
-    source = 'rtsp://0.0.0.0:8080/test'       # Data source path
+    weights = 'weights/landpad20140411.pt'             # Model weights file path
+    source = 'rtsp://127.0.0.2:8080/test'       # Data source path
     img_size = 640                    # Image size for inference
     conf_thres = 0.25                 # Object confidence threshold
     iou_thres = 0.4                  # IOU threshold for NMS

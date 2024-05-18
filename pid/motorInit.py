@@ -1,10 +1,10 @@
 import serial
 import struct
-import Jetson.GPIO as GPIO
+# import Jetson.GPIO as GPIO
 from time import sleep as delay
 
-GPIO.setmode(GPIO.BOARD)
-GPIO.setup(11, GPIO.OUT)
+# GPIO.setmode(GPIO.BOARD)
+# GPIO.setup(11, GPIO.OUT)
 
 d_t = 1/1000000  # a bit send time
 s_t = 0
@@ -20,7 +20,7 @@ class motorSet():
 
     def init_serial(self):
             self.ser = serial.Serial(
-                port='/dev/ttyTHS0',
+                port='/dev/ttyUSB0',
                 baudrate=BR,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
@@ -41,12 +41,12 @@ class motorSet():
 
     def gpioHigh(self, pin):
         if not self.gpioState:  # GPIO is off
-            GPIO.output(pin, GPIO.HIGH)
+            # GPIO.output(pin, GPIO.HIGH)
             self.gpioState = True
 
     def gpioLow(self, pin):
         if self.gpioState:  # GPIO is on
-            GPIO.output(pin, GPIO.LOW)
+            # GPIO.output(pin, GPIO.LOW)
             self.gpioState = False
 
     def send(self, buf=0, size=0):
