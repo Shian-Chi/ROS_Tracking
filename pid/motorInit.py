@@ -46,7 +46,7 @@ class motorSet():
 
     def gpioLow(self, pin):
         if self.gpioState:  # GPIO is on
-            GPIO.output(pin, GPIO.LOW)
+            # GPIO.output(pin, GPIO.LOW)
             self.gpioState = False
 
     def send(self, buf=0, size=0):
