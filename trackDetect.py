@@ -58,11 +58,6 @@ pub_bbox = {'x0': 0,
             'y0': 0,
             'y1': 0
             }
-            'x1': 0,
-            'y0': 0,
-            'y1': 0
-            }
-
 
 para = Parameters()
 pid = PID_Ctrl()
