@@ -1,4 +1,5 @@
 import multiprocessing.queues
+import multiprocessing.queues
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import ReliabilityPolicy, QoSProfile
@@ -6,6 +7,8 @@ from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import NavSatFix, Imu
 from mavros_msgs.msg import Altitude
 from transforms3d import euler
+from tutorial_interfaces.msg import Img, Bbox
+# from mavros_msgs.msg import  Bbox, Img
 from tutorial_interfaces.msg import Img, Bbox
 # from mavros_msgs.msg import  Bbox, Img
 
@@ -27,8 +30,14 @@ from pid.parameter import Parameters
 from pid.motor import motorCtrl
 from pid.position import verticalTargetPositioning
 
-import threading
 
+import threading
+import queue
+
+bbox_queue = queue.Queue()
+
+# ROS settings
+rclpy.init()
 # ROS settings
 rclpy.init()
 
@@ -45,6 +54,10 @@ pub_img = {"first_detect": False,
            }
 
 pub_bbox = {'x0': 0,
+            'x1': 0,
+            'y0': 0,
+            'y1': 0
+            }
             'x1': 0,
             'y0': 0,
             'y1': 0
@@ -131,9 +144,12 @@ class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
         # self.subscription = self.create_subscription(Img,"topic",self.holdcb,10)
-        self.GlobalPositionSuub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.GlobalPositionSuub = self.create_subscription(
+            NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.imuSub = self.create_subscription(
+            Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(
+            depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.hold = False
         self.latitude = 0.0
         self.longitude = 0.0
@@ -155,6 +171,10 @@ class MinimalSubscriber(Node):
                                            msg.orientation.x,
                                            msg.orientation.y,
                                            msg.orientation.z])
+        self.pithch = ned_euler_data[0] / math.pi* 180
+        self.roll = ned_euler_data[1] / math.pi* 180
+        self.yaw = ned_euler_data[2] / math.pi* 180
+   
         self.pithch = ned_euler_data[0] / math.pi* 180
         self.roll = ned_euler_data[1] / math.pi* 180
         self.yaw = ned_euler_data[2] / math.pi* 180
@@ -281,9 +301,13 @@ def secondDetect():
     pub_img["target_longitude"], pub_img["target_latitude"], pub_img["third_detect"], pub_img["camera_center"] = tlo, tla, True, False
     time.sleep(2)
 
+    time.sleep(2)
+
 
 def firstDetect():
     pub_img["send_info"] = pub_img["second_detect"] = True
+
+    print("camera_center = False")
 
     print("camera_center = False")
     pub_img["target_longitude"], pub_img["target_latitude"], pub_img["camera_center"] = sub.getLongitude(), sub.getLatitude(), False
@@ -318,6 +342,37 @@ def txt_save(p, xyxy, conf, cls):
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False,
            project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
 
+    update_position_data()  # Update GPS, IMU, Gimbal data
+    time.sleep(2)  # Delay 2s
+
+
+def print_detection_info(s, detect_count, end_inference, start_inference, end_nms):
+    inferenceTime = 1E3 * (end_inference - start_inference)
+    NMS_Time = 1E3 * (end_nms - end_inference)
+    total_time = inferenceTime + NMS_Time
+    fps = 1E3 / total_time
+    print("success detect count:", detect_count)
+    print(f"{s}Done. ({inferenceTime:.1f}ms) Inference, ({NMS_Time:.1f}ms) NMS, FPS:{fps:.1f}\n")
+
+
+def bbox_filter(xyxy0, xyxy1):
+    c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
+    c1 = [((xyxy1[0] + xyxy1[2]) / 2), ((xyxy1[1] + xyxy1[3]) / 2)]
+
+    dis = distance(c1[0], c0[0], c1[1], c1[1])
+    return dis <= 256
+
+
+def txt_save(p, xyxy, conf, cls):
+    line = (cls, *xyxy, conf)  # label format
+    with open(p + '.txt', 'a') as f:
+        f.write(('%g ' * len(line)).rstrip() % line + '\n')
+
+
+def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False,
+           project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
+
+    source, weights, view_img, imgsz, trace = source, weights, check_imshow(), img_size, not no_trace
     source, weights, view_img, imgsz, trace = source, weights, check_imshow(), img_size, not no_trace
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
     # Directories
@@ -337,6 +392,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         model = TracedModel(model, device, img_size)
 
     model.half()  # to FP16
+    model.half()  # to FP16
 
     # Set Dataloader
     vid_path, vid_writer = None, None
@@ -350,18 +406,24 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
     # Run inference
     model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+    model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
 
     sequentialHits = 0  # The number of consecutive target detections
     sequentialHits_status = 0
     bbox_filter_status = False
 
+
     # record xyxy position
+    xyxy_previous = [0, 0, 0, 0]
+    xyxy_current = [0, 0, 0, 0]
+
     xyxy_previous = [0, 0, 0, 0]
     xyxy_current = [0, 0, 0, 0]
 
     t0 = time.time()
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
+        img = img.half()  # uint8 to fp16
         img = img.half()  # uint8 to fp16
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
@@ -384,15 +446,17 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             max_xyxy = None  # Variable to store the xyxy with the maximum confidence
             detectFlag = False
 
+
             if webcam:
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
 
             p = Path(p)  # to Path
             txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
 
+
             if len(det):
                 detectFlag = True
-                
+
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
@@ -408,26 +472,39 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                         max_conf = conf
                         max_xyxy = xyxy
 
+
                     if save_txt:  # Write to file
+                        txt_save(txt_path, max_xyxy, max_conf)
+
+                    if view_img:  # Add bbox to image
                         txt_save(txt_path, max_xyxy, max_conf)
 
                     if view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(max_xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
 
+                        plot_one_box(max_xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
+
                 xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
+
 
             # Stream results
             if view_img:
                 cv2.imshow(name, im0)
+                cv2.imshow(name, im0)
                 cv2.waitKey(1)  # 1 millisecond
+
 
         sequentialHits = sequentialHits + 1 if detectFlag else 0
         sequentialHitsStatus = sequentialHits > 4
 
+
         print_detection_info(s, sequentialHits, t2, t1, t3)
 
+
         # tracking
+        if bbox_filter:
+            pub_img["camera_center"] = PID(max_xyxy)
         if bbox_filter:
             pub_img["camera_center"] = PID(max_xyxy)
 
@@ -445,6 +522,7 @@ def main():
     iou_thres = 0.4                  # IOU threshold for NMS
     device = '0'                       # Device to run the inference on, '' for auto-select
     view_img = not True                   # Whether to display images during processing
+    view_img = not True                   # Whether to display images during processing
     # Specific classes to detect, None means detect all classes
     classes = None
     agnostic_nms = False              # Apply class-agnostic NMS
@@ -457,6 +535,7 @@ def main():
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
+               classes, agnostic_nms, augment, project, name, exist_ok, no_trace)
                classes, agnostic_nms, augment, project, name, exist_ok, no_trace)
 
 
