@@ -32,10 +32,8 @@ import queue
 
 bbox_queue = queue.Queue()
 
-
-def distance(x0: 0.0, y0: 0.0, z0: 0.0, x1: 0.0, y1: 0.0, z1: 0.0, x2: 0.0, y2: 0.0, z2: 0.0):
-    return math.sqrt(((x1 - x0)**2) + ((y1 - y0)**2) + ((z1 - z0)**2))
-
+# ROS settings
+rclpy.init()
 
 pub_img = {"first_detect": False,
            "second_detect": False,
@@ -54,8 +52,6 @@ pub_bbox = {'x0': 0,
             'y0': 0,
             'y1': 0
             }
-
-rclpy.init()
 
 
 class MinimalPublisher(Node):
@@ -118,10 +114,10 @@ class MinimalSubscriber(Node):
                                            msg.orientation.x,
                                            msg.orientation.y,
                                            msg.orientation.z])
-        self.pithch = radian_conv_degree(ned_euler_data[0])
-        self.roll = radian_conv_degree(ned_euler_data[1])
-        self.yaw = radian_conv_degree(ned_euler_data[2])
-
+        self.pithch = ned_euler_data[0] / math.pi* 180
+        self.roll = ned_euler_data[1] / math.pi* 180
+        self.yaw = ned_euler_data[2] / math.pi* 180
+   
     def getImuPitch(self):
         return self.pitch
 
@@ -154,41 +150,69 @@ def _spinThread(pub, sub):
 pub = MinimalPublisher()
 sub = MinimalSubscriber()
 
-def haversine_distance(lat1, lon1, alt1, lat2, lon2, alt2):
-    # 地球半徑，單位為公里
-    R = 6371.0
+def get_RTK_position():
+    return sub.getLatitude(), sub.getLongitude(), sub.getAltitude()
+
+# Record location
+moveLatList = []
+moveLonList = []
+moveAltList = []
+
+# Add position
+def appendPos():
+    la, lo, al = get_RTK_position()
+    moveLatList.append(la)
+    moveLonList.append(lo)
+    moveAltList.append(al)
+
+# Get first position
+appendPos()
+threeMetersStatus = False
+
+# Calculate straight line distance
+def distance(x0: 0.0, y0: 0.0, z0: 0.0, x1: 0.0, y1: 0.0, z1: 0.0, x2: 0.0, y2: 0.0, z2: 0.0):
+    return math.sqrt(((x1 - x0)**2) + ((y1 - y0)**2) + ((z1 - z0)**2))
+
+
+def haversine(lon1, lat1, lon2, lat2, alt1=0.0, alt2=0.0):
+    # Convert angles to radians
+    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
     
-    # 將經緯度從度轉換為弧度
-    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    # Haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     
-    # 經緯度差
-    delta_lat = lat2 - lat1
-    delta_lon = lon2 - lon1
+    r = 6371000  # Radius of the Earth in meters
     
-    # 哈弗辛公式
-    a = math.sin(delta_lat / 2.0)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2.0)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    # Horizontal distance
+    horizontal_distance = c * r
     
-    # 從經緯度計算二維地表距離
-    distance_2d = R * c
+    # Consider the height difference
+    vertical_distance = alt2 - alt1
+    total_distance = math.sqrt(horizontal_distance**2 + vertical_distance**2)
     
-    # 計算高度差
-    delta_alt = alt2 - alt1
-    
-    # 使用畢氏定理計算三維空間中的距離
-    distance_3d = math.sqrt(distance_2d**2 + delta_alt**2)
-    
-    return distance_3d
+    return total_distance
 
 class timerTask(Node):
     def __init__(self):
         self.betweenStatus = False
         self.gpsPosition = [],[]
         self.gimbalAngle = [],[]
-        self.img_timer = self.caleDis(1, self.betweenDis)
-
-    def betweenDis(self, x0, y0, z0, x1, y1, z1, x2, y2, z2):
-        return haversine_distance(x0, y0, z0, x1, y1, z1, x2, y2, z2) 
+        self.img_timer = self.create_timer(1, self.betweenDis)
+        
+        self.lat, self.lon, self.alt = 0.0, 0.0, 0.0
+        
+    def betweenDis(self):
+        global threeMetersStatus
+        self.alt, self.lon, self.alt = get_RTK_position()
+        p = len(moveLonList)-1 # get the last piece of data's location
+        dis = haversine(lon1=moveLonList[p], lat1=moveLatList[p], alt1=moveAltList[p], \
+                        lon2=self.lon, lat2=self.lat, alt2=self.alt) 
+        threeMetersStatus = False if dis <= 3.0 else True
+        if threeMetersStatus:
+            appendPos()
         
 para = Parameters()
 pid = PID_Ctrl()
@@ -197,10 +221,6 @@ position = verticalTargetPositioning()
 yaw = motorCtrl(1, 0, 90)
 time.sleep(2)
 pitch = motorCtrl(2, 0, 45)
-
-
-def radian_conv_degree(Radian):
-    return ((Radian / math.pi) * 180)
 
 
 def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
@@ -271,8 +291,7 @@ def firstDetect():
     pub_img["send_info"] = pub_img["second_detect"] = True
 
     print("camera_center = False")
-    pub_img["target_longitude"], pub_img["target_latitude"], pub_img["camera_center"] = sub.getLongitude(
-    ), sub.getLatitude(), False
+    pub_img["target_longitude"], pub_img["target_latitude"], pub_img["camera_center"] = sub.getLongitude(), sub.getLatitude(), False
 
     update_position_data()  # Update GPS, IMU, Gimbal data
     time.sleep(2)  # Delay 2s
@@ -304,15 +323,11 @@ def txt_save(p, xyxy, conf, cls):
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False,
            project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
 
-    source, weights, view_img, imgsz, trace = source, weights, check_imshow(
-    ), img_size, not no_trace
-    webcam = source.isnumeric() or source.endswith('.txt') or source.lower(
-    ).startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
+    source, weights, view_img, imgsz, trace = source, weights, check_imshow(), img_size, not no_trace
+    webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
     # Directories
-    save_dir = Path(increment_path(Path(project) / name,
-                    exist_ok=exist_ok))  # increment run
-    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True,
-                                                          exist_ok=True)  # make dir
+    save_dir = Path(increment_path(Path(project) / name, exist_ok=exist_ok))  # increment run
+    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Initialize
     set_logging()
@@ -339,8 +354,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     colors = [[np.random.randint(0, 255) for _ in range(3)] for _ in names]
 
     # Run inference
-    model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(
-        next(model.parameters())))  # run once
+    model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
 
     sequentialHits = 0  # The number of consecutive target detections
     sequentialHits_status = 0
@@ -365,8 +379,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         t2 = time_synchronized()
 
         # Apply NMS
-        pred = non_max_suppression(
-            pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
+        pred = non_max_suppression(pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
         t3 = time_synchronized()
 
         # Process detections
@@ -377,19 +390,16 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             detectFlag = False
 
             if webcam:
-                p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(
-                ), dataset.count
+                p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
 
             p = Path(p)  # to Path
-            txt_path = str(save_dir / 'labels' / p.stem) + \
-                ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
+            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
 
             if len(det):
                 detectFlag = True
 
                 # Rescale boxes from img_size to im0 size
-                det[:, :4] = scale_coords(
-                    img.shape[2:], det[:, :4], im0.shape).round()
+                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
                 # Print results
                 for c in det[:, -1].unique():
@@ -408,11 +418,9 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
                     if view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
-                        plot_one_box(max_xyxy, im0, label=label,
-                                     color=colors[int(cls)], line_thickness=3)
+                        plot_one_box(max_xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
 
-                xyxy_current = np.array([t.item()
-                                        for t in max_xyxy], dtype='i4')
+                xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
 
             # Stream results
             if view_img:
@@ -441,7 +449,7 @@ def main():
     conf_thres = 0.25                 # Object confidence threshold
     iou_thres = 0.4                  # IOU threshold for NMS
     device = '0'                       # Device to run the inference on, '' for auto-select
-    view_img = True                   # Whether to display images during processing
+    view_img = not True                   # Whether to display images during processing
     # Specific classes to detect, None means detect all classes
     classes = None
     agnostic_nms = False              # Apply class-agnostic NMS
