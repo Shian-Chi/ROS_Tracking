@@ -25,8 +25,8 @@ from pid.motor import motorCtrl
 from pid.position import verticalTargetPositioning
 import threading
 
-# from tutorial_interfaces.msg import Img, Bbox
-from mavros_msgs.msg import  Bbox, Img 
+from tutorial_interfaces.msg import Img, Bbox
+#from mavros_msgs.msg import  Bbox, Img 
 
 pub_img = {"first_detect": False,
            "second_detect": False,
@@ -254,15 +254,11 @@ def firstDetect():
     
     
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
-    project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
+    project='runs/detect', name='exp', exist_ok=False, no_trace=False):
 
     source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
     save_img = not nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
-
-    # Directories
-    save_dir = Path(increment_path(Path(project) / name, exist_ok=exist_ok))  # increment run
-    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Initialize
     set_logging()
@@ -280,8 +276,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     if half:
         model.half()  # to FP16
 
-    # Set Dataloader
-    vid_path, vid_writer = None, None
 
     cudnn.benchmark = True  # set True to speed up constant image size inference
     dataset = LoadStreams(source, img_size=imgsz, stride=stride)
@@ -330,8 +324,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
 
             p = Path(p)  # to Path
-            save_path = str(save_dir / p.name)  # img.jpg
-            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
             
             if len(det):
                 detectFlag = True
@@ -350,11 +342,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     if conf > max_conf:
                         max_conf = conf
                         max_xyxy = xyxy
-                        
-                    if save_txt:  # Write to file
-                        line = (cls, *max_xyxy, conf) # label format
-                        with open(txt_path + '.txt', 'a') as f:
-                            f.write(('%g ' * len(line)).rstrip() % line + '\n')
                     
                     if save_img or view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
@@ -364,7 +351,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
                 
                 # Tracking and bbox enable condition
-                """
                 if sequentialHits > 4:
                     bbox_filter_status = bbox_filter(xyxy_current, xyxy_previous)
                     if  bbox_filter_status:
@@ -375,45 +361,21 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 print(f"current:{xyxy_current}, previous:{xyxy_previous}")
             else:
                 pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
-                """
                 
             # Stream results
-            
             if view_img:
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
             
-
-            # Save results (image with detections)
-            
-            """
-            if save_img:
-                if dataset.mode == 'stream' or dataset.mode == 'video':
-                    if vid_path != save_path:  # new video
-                        vid_path = save_path
-                        if isinstance(vid_writer, cv2.VideoWriter):
-                            vid_writer.release()  # release previous video writer
-                        if vid_cap:  # video
-                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        else:  # stream
-                            fps, w, h = 30, im0.shape[1], im0.shape[0]
-                            save_path += '.mp4'
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                    vid_writer.write(im0)
-            """
-            
-        
         sequentialHits = sequentialHits + 1 if detectFlag else 0
         sequentialHitsStatus = sequentialHits > 4
         
         print_detection_info(s, sequentialHits, t2, t1, t3)
         
         # tracking
-        # if bbox_filter_status:
-        #     pub_img["camera_center"] = PID(max_xyxy)
-        pub_img["camera_center"] = PID(max_xyxy)
+        if bbox_filter_status:
+            pub_img["camera_center"] = PID(max_xyxy)
+        # pub_img["camera_center"] = PID(max_xyxy)
         
         if pub_img["second_detect"] == True and pub_img["hold_status"]:
             print("second detect")
@@ -423,7 +385,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     secondDetect()           
                     while not pub_img["hold_status"]:
                         pub_img["send_info"] = False
-                        sequentialHits_status = 2
+                        # sequentialHits_status = 2
 
         else:  # first_detect == False
             # Target detected for the first time and Aim at targets
@@ -444,13 +406,13 @@ def main():
     spinThread.start()
 
     # Settings directly specified here
-    weights = 'landpad20140411.pt'             # Model weights file path
-    source = 'rtsp://0.0.0.0:8080/test'       # Data source path
+    weights = 'landpad20240522.pt'             # Model weights file path
+    source = 'rtsp://127.0.0.2:8080/test'       # Data source path
     img_size = 640                    # Image size for inference
     conf_thres = 0.25                 # Object confidence threshold
-    iou_thres = 0.4                  # IOU threshold for NMS
+    iou_thres = 0.45                  # IOU threshold for NMS
     device = '0'                       # Device to run the inference on, '' for auto-select
-    view_img = True                   # Whether to display images during processing
+    view_img = not True                   # Whether to display images during processing
     nosave = False                    # Whether not to save images/videos
     # Specific classes to detect, None means detect all classes
     classes = None
@@ -460,7 +422,6 @@ def main():
     name = 'exp'                      # Name of the run
     exist_ok = False                   # Overwrite existing files/directories if necessary
     no_trace = False                   # Don't trace the model for optimizations
-    save_txt = False                   # Save results to runs/<project>/*.txt
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
