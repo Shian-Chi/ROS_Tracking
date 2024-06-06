@@ -19,8 +19,8 @@ import numpy as np
 import cmath
 import math
 import struct
-from mavros_msgs.srv import DroneStatus, DroneMissionPath
-from mavros_msgs.msg import Img
+from tutorial_interfaces.srv import DroneStatus, DroneMissionPath
+from tutorial_interfaces.msg import Img
 
 drone_point = []
 temp_detect_status = False
@@ -652,20 +652,20 @@ if __name__ == '__main__':
                                 fly_to_global(dronePub, droneSub, droneCli, origin_latitude, origin_longitude, takeoffAltitude, bearing, origin_latitude, origin_longitude) #懸停
                                 dronePub.hold_status = True #懸停完成發布
                                 while(droneSub.camera_center == False):
-                                    print("waitng camera center_1!")
+                                    print("waitng camera center!")
                                     time.sleep(1)
                                 while(droneSub.camera_center == True):
-                                    print("wait camera_center = False_1")
+                                    print("wait camera_center = False")
                                     time.sleep(1)
                                 dronePub.hold_status = False
                                 dronePub.altitude = takeoffAltitude-5.0
                                 print("down 5m")
                                 dronePub.hold_status = True
                                 while(droneSub.camera_center == False):
-                                    print("waitng camera center!_2")
+                                    print("waitng camera center!")
                                     time.sleep(1)
                                 while(droneSub.camera_center == True):
-                                    print("wait camera_center = False_2")
+                                    print("wait camera_center = False")
                                     time.sleep(1)
                                 fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, 10.0, 0.0)
                                 droneCli.requestLand()
