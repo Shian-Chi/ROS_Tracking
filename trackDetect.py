@@ -365,13 +365,10 @@ def txt_save(p, xyxy, conf, cls):
 
 
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False,
-           project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
+           project='runs/detect', name='exp', exist_ok=False, no_trace=False):
 
     source, weights, view_img, imgsz, trace = source, weights, check_imshow(), img_size, not no_trace
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
-    # Directories
-    save_dir = Path(increment_path(Path(project) / name, exist_ok=exist_ok))  # increment run
-    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Initialize
     set_logging()
@@ -386,9 +383,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         model = TracedModel(model, device, img_size)
 
     model.half()  # to FP16
-
-    # Set Dataloader
-    vid_path, vid_writer = None, None
 
     cudnn.benchmark = True  # set True to speed up constant image size inference
     dataset = LoadStreams(source, img_size=imgsz, stride=stride)
@@ -440,8 +434,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
 
             p = Path(p)  # to Path
-            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
-
 
             if len(det):
                 detectFlag = True
@@ -460,10 +452,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     if conf > max_conf:
                         max_conf = conf
                         max_xyxy = xyxy
-
-
-                    if save_txt:  # Write to file
-                        txt_save(txt_path, max_xyxy, max_conf)
 
                     if view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
@@ -513,7 +501,6 @@ def main():
     name = 'exp'                      # Name of the run
     exist_ok = False                   # Overwrite existing files/directories if necessary
     no_trace = False                   # Don't trace the model for optimizations
-    save_txt = False                   # Save results to runs/<project>/*.txt
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
