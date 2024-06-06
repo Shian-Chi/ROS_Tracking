@@ -395,7 +395,7 @@ def main():
         spinThread = threading.Thread(target=_spinThread, args=(pub, sub))
         spinThread.start()
         # Settings directly specified here
-        weights = "landpad20140411.pt"             # Model weights file path
+        weights = "landpad20240522.pt"             # Model weights file path
         source = "rtsp://0.0.0.0:8080/test"       # Data source path
         img_size = 640                    # Image size for inference
         conf_thres = 0.5                 # Object confidence threshold
