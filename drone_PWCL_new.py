@@ -28,8 +28,9 @@ from tutorial_interfaces.srv import DroneStatus, DroneMissionPath
 from tutorial_interfaces.msg import Img, Bbox, GimbalDegree
 
 drone_point = [] #無人機不固定飛行點
-ipaddr = '192.168.0.75'
+ipaddr = '172.22.64.52'
 port = 80
+drone_id = bytes('\x02', 'utf-8')
 
 speed_count = []
 altitude_count = []
@@ -155,14 +156,22 @@ class DroneTimerTaskNode(Node):
         self.recvission_task = self.create_timer(1/80,self.recv_task_code)
         self.seetarget_task = self.create_timer(1/30,self.see_target)
         self.sendimgbox_task = self.create_timer(1/10,self.send_img_box)
+        self.sendgimbol_angle = self.create_timer(1/10,self.sendgimbol_angle)
         self.service_client = DroneServiceNode()
         self.topic_pub = DronePublishNode()
+        
+    def sendgimbol_angle(self):
+        global droneSub
+        head_code = b'\x47\x49\x4D\x42\x4F\x4C' #GIMBOL
+        reserved = b'\x00\x00\x00\x00'
+        end = bytes('\x45\x4E\x44', 'utf-8')
+        packet = struct.pack('=6s1s1f1f4s3s',head_code,drone_id,droneSub.motor_pitch,droneSub.motor_yaw,reserved,end)
+        drone_TCPIP.socket_send(packet)
         
     def send_img_box(self):
         global droneSub
         head_code = b'\x42\x4F\x58'
         end = bytes('\x00', 'utf-8')
-        drone_id = bytes('\x02', 'utf-8')
         packet = struct.pack('=3s1i1i1i1i1s1s',head_code,droneSub.x0,droneSub.x1,droneSub.y0,droneSub.y1,drone_id,end)
         drone_TCPIP.socket_send(packet)
         
@@ -210,7 +219,6 @@ class DroneTimerTaskNode(Node):
         # 頭碼及尾碼
         head = bytes('\x30', 'utf-8')
         end = bytes('\x40', 'utf-8')
-        drone_id = bytes('\x02', 'utf-8')
         battery_temp = 0.0
         global droneSub
         packet = struct.pack('=1s9f1f1f1f1d1d1i1s1s',
