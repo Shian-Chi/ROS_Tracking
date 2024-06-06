@@ -24,7 +24,7 @@ from pid.parameter import Parameters
 from pid.motor import motorCtrl
 from pid.position import verticalTargetPositioning
 import threading
-
+import queue
 from tutorial_interfaces.msg import Img, Bbox
 #from mavros_msgs.msg import  Bbox, Img 
 
@@ -375,35 +375,45 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         # tracking
         if bbox_filter_status:
             pub_img["camera_center"] = PID(max_xyxy)
-        # pub_img["camera_center"] = PID(max_xyxy)
         
-        if pub_img["second_detect"] == True and pub_img["hold_status"]:
-            print("second detect")
-            # Continue detection after descending five meters
-            if sequentialHits_status == 1 and sequentialHitsStatus:  # Detect target for the second time
-                if pub_img["camera_center"] :
-                    secondDetect()           
-                    while not pub_img["hold_status"]:
+
+def positionTask(hitsStatus:queue.Queue):
+    while True:
+        stat = hitsStatus.full()
+        if stat:
+            hs = hitsStatus.get()
+            if pub_img["second_detect"] == True and pub_img["hold_status"]:
+                print("second detect")
+                # Continue detection after descending five meters
+                if sequentialHits_status == 1 and hs:  # Detect target for the second time
+                    if pub_img["camera_center"] :
+                        secondDetect()           
+                        while not pub_img["hold_status"]:
+                            pub_img["send_info"] = False
+                            # sequentialHits_status = 2
+
+            else:  # first_detect == False
+                # Target detected for the first time and Aim at targets
+                if sequentialHits_status == 0 and hs:  # Detect target for the first time
+                    pub_img["first_detect"] = True
+                    print("first detect")
+
+                if pub_img["camera_center"] and pub_img["hold_status"]:  # target centered and drone is hold
+                    firstDetect()
+                    while not sub.getHold():
                         pub_img["send_info"] = False
-                        # sequentialHits_status = 2
-
-        else:  # first_detect == False
-            # Target detected for the first time and Aim at targets
-            if sequentialHits_status == 0 and sequentialHitsStatus:  # Detect target for the first time
-                pub_img["first_detect"] = True
-                print("first detect")
-
-            if pub_img["camera_center"] and pub_img["hold_status"]:  # target centered and drone is hold
-                firstDetect()
-                while not sub.getHold():
-                    pub_img["send_info"] = False
-                    sequentialHits_status = 1
+                        sequentialHits_status = 1
 
 
 def main():
     # ROS2
     spinThread = threading.Thread(target=_spinThread, args=(pub, sub))
     spinThread.start()
+    
+    # Position Task
+    hitsStatus = queue.Queue()
+    posTask = threading.Thread(target=positionTask, args=(hitsStatus))
+    posTask.start
 
     # Settings directly specified here
     weights = 'landpad20240522.pt'             # Model weights file path
