@@ -368,7 +368,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
            project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
 
     source, weights, view_img, imgsz, trace = source, weights, check_imshow(), img_size, not no_trace
-    source, weights, view_img, imgsz, trace = source, weights, check_imshow(), img_size, not no_trace
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
     # Directories
     save_dir = Path(increment_path(Path(project) / name, exist_ok=exist_ok))  # increment run
@@ -387,7 +386,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         model = TracedModel(model, device, img_size)
 
     model.half()  # to FP16
-    model.half()  # to FP16
 
     # Set Dataloader
     vid_path, vid_writer = None, None
@@ -401,7 +399,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
     # Run inference
     model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-    model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
 
     sequentialHits = 0  # The number of consecutive target detections
     sequentialHits_status = 0
@@ -409,9 +406,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
 
     # record xyxy position
-    xyxy_previous = [0, 0, 0, 0]
-    xyxy_current = [0, 0, 0, 0]
-
     xyxy_previous = [0, 0, 0, 0]
     xyxy_current = [0, 0, 0, 0]
 
@@ -472,12 +466,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                         txt_save(txt_path, max_xyxy, max_conf)
 
                     if view_img:  # Add bbox to image
-                        txt_save(txt_path, max_xyxy, max_conf)
-
-                    if view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
-                        plot_one_box(max_xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
-
                         plot_one_box(max_xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
 
                 xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
@@ -485,7 +474,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
             # Stream results
             if view_img:
-                cv2.imshow(name, im0)
                 cv2.imshow(name, im0)
                 cv2.waitKey(1)  # 1 millisecond
 
@@ -500,8 +488,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         # tracking
         if bbox_filter:
             pub_img["camera_center"] = PID(max_xyxy)
-        if bbox_filter:
-            pub_img["camera_center"] = PID(max_xyxy)
+
 
 
 def main():
@@ -530,7 +517,6 @@ def main():
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
-               classes, agnostic_nms, augment, project, name, exist_ok, no_trace)
                classes, agnostic_nms, augment, project, name, exist_ok, no_trace)
 
 
