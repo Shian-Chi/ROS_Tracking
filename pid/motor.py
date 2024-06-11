@@ -60,7 +60,7 @@ class motorCtrl:
         data = struct.pack("10B", 62, 165, self.ID, 4, 62 + 165 + self.ID + 4, dir, 0, 0, 0, dir)
         motor.send(data, 10)
         delay(0.1)
-
+    
     def getEncoderAndAngle(self):
         cmd = np.uint8(144)  # 0x90
         check_sum = HC + 144 + self.ID + 0

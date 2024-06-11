@@ -25,7 +25,7 @@ from pid.motor import motorCtrl
 from pid.position import verticalTargetPositioning
 import threading
 import queue
-from tutorial_interfaces.msg import Img, Bbox
+from tutorial_interfaces.msg import Img, Bbox, GimbalDegree
 #from mavros_msgs.msg import  Bbox, Img 
 
 pub_img = {"first_detect": False,
@@ -134,8 +134,7 @@ class MinimalPublisher(Node):
 
         self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
         bbox_timer_period = 1/10
-        self.img_timer = self.create_timer(
-            bbox_timer_period, self.bbox_callback)
+        self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
 
         self.img = Img()
         self.bbox = Bbox()
@@ -161,6 +160,7 @@ class MinimalSubscriber(Node):
         self.GlobalPositionSuub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.gimbalRemove = self.create_subscription(GimbalDegree, "gimDeg", self.gimAngDegcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.hold = False
         self.latitude = 0.0
         self.longitude = 0.0
@@ -168,7 +168,13 @@ class MinimalSubscriber(Node):
         self.pitch = 0.0
         self.roll = 0.0
         self.yaw = 0.0
+        self.gimbalYaw = 0.0
+        self.gimbalPitch = 0.0
 
+    def gimAngDegcb(self, msg):
+        self.gimbalYaw = msg.yaw
+        self.gimbalPitch = msg.pitch
+    
     def holdcb(self, msg):
         self.hold = pub_img["hold_status"] = msg.hold_status
 
@@ -405,10 +411,26 @@ def positionTask(hitsStatus:queue.Queue):
                         sequentialHits_status = 1
 
 
+def groundGimbalCtrl(angleQ:queue.Queue):
+    while True:
+        if angleQ.full:
+            yawA, pitchA = angleQ.get()
+            yawA = int(yawA * 100)
+            pitchA = int(pitchA * 100)
+            yaw.singleTurnVal(yawA)
+            pitch.singleTurnVal(pitchA)
+        time.sleep(0.01)
+    
+
 def main():
     # ROS2
     spinThread = threading.Thread(target=_spinThread, args=(pub, sub))
     spinThread.start()
+    
+    # Ground Gimbal Ctrl
+    degQueue = queue.Queue(maxsize=1)
+    groundCtrl = threading.Thread(target=groundGimbalCtrl, args=(degQueue))
+    groundCtrl.start()
     
     # Position Task
     hitsStatus = queue.Queue()

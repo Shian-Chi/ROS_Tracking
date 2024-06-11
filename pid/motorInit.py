@@ -77,3 +77,9 @@ class motorSet():
         except serial.SerialException as e:
             print(f"Error in recv method: {e}")
             return False
+
+    def echo(self, buf=0, size=0):
+        try:
+            self.gpioHigh(11)
+            s_t = d_t*8*size/3 # delay time
+            
