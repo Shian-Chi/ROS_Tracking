@@ -138,7 +138,7 @@ class MinimalPublisher(Node):
         self.bbox = Bbox()
 
     def img_callback(self):
-        self.img.first_detect, self.img.second_detect, self.img.third_detect, self.img.camera_center, self.img.motor_pitch, \
+        self.img.detect, self.img.camera_center, self.img.motor_pitch, \
             self.img.motor_yaw, self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()
 
         self.imgPublish.publish(self.img)
