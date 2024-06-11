@@ -234,7 +234,6 @@ def update_position_data():
         motorYaw=pub_img["motor_yaw"],
         motorPitch=pub_img["motor_pitch"]
     )
-    pub_img["second_detect"] = True
 
 
 def secondDetect():
@@ -248,7 +247,7 @@ def secondDetect():
     delay(2)
 
 def firstDetect():
-    pub_img["send_info"] = pub_img["second_detect"] = True
+    pub_img["send_info"] = True
     
     print("camera_center = False")    
     pub_img["target_longitude"], pub_img["target_latitude"], pub_img["camera_center"] = sub.getLongitude(), sub.getLatitude(), False
@@ -386,7 +385,7 @@ def positionTask(hitsStatus:queue.Queue):
         stat = hitsStatus.full()
         if stat:
             hs = hitsStatus.get()
-            if pub_img["second_detect"] == True and pub_img["hold_status"]:
+            if pub_img["hold_status"]:
                 print("second detect")
                 # Continue detection after descending five meters
                 if sequentialHits_status == 1 and hs:  # Detect target for the second time
@@ -399,7 +398,6 @@ def positionTask(hitsStatus:queue.Queue):
             else:  # first_detect == False
                 # Target detected for the first time and Aim at targets
                 if sequentialHits_status == 0 and hs:  # Detect target for the first time
-                    pub_img["first_detect"] = True
                     print("first detect")
 
                 if pub_img["camera_center"] and pub_img["hold_status"]:  # target centered and drone is hold
