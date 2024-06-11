@@ -1,11 +1,12 @@
-from pid.motorInit import motorSet
-from pid.parameter import Parameters
+from pid.motorInit import MotorSet
+from pid.parameter import Parameters, hexStr
 import numpy as np
 import struct
 from time import sleep as delay
+from typing import List
 
 para = Parameters()
-motor = motorSet()
+motor = MotorSet()
 
 X_Center = 1920 / 2
 Y_Center = 1080 / 2
@@ -15,17 +16,45 @@ HC = np.uint8(62)  # header Code
 
 
 class motorInformation:
-    def __init__(self, ID, maxAngles:float):
+    def __init__(self, ID, maxAngles: float):
         self.ID = ID
         self.encoder = float(0.0)
         self.angle = float(0.0)
         self.speed = float(0.0)
-        self.voltage = float(0.0)
         self.powers = float(0.0)
         self.current = float(0.0)
-
-        # The parameter "maxAngles" must be the same as the "max Angle (degree)" value of the motor firmware
+        self.temperature = 0
         self.maxAngles = maxAngles
+
+    def update_encoder(self, encoder_value):
+        if 0 <= encoder_value <= 32767:  # 确保编码器值在有效范围内
+            self.encoder = encoder_value
+            self.angle = (encoder_value / 32767.0)
+        else:
+            print("Invalid encoder value")
+
+    def update_speed(self, speed_value):
+        self.speed = speed_value
+
+    def update_power(self, power):
+        self.powers = power
+
+    def update_voltage_current(self, current):
+        self.current = current
+        
+    def getEncoder(self):
+        return self.encoder
+    
+    def getAngle(self):
+        if self.encoder == 32767:
+            self.angle = 0.0
+        else:
+            self.angle = self.encoder / para.uintDegreeEncoder
+        return self.angle
+    
+    def getSpeed(self):
+        return self.speed
+
 
 
 class motorCtrl:
@@ -61,65 +90,77 @@ class motorCtrl:
         motor.send(data, 10)
         delay(0.1)
     
-    def getEncoderAndAngle(self):
-        cmd = np.uint8(144)  # 0x90
-        check_sum = HC + 144 + self.ID + 0
-        data = struct.pack("5B", HC, cmd, self.ID, 0, check_sum)
-        n = 1
-        while n:
-            try:
-                motor.send(data, 5)  # send CMD to Motor
-                delay(0.00025)  # wait for response
-                r = motor.recv()  # receive response
-                if (r != False) and (len(r) >= 12):
-                    r = struct.unpack(str(len(r)) + "B", r)  # unpack response
-                    i = -1
-                    if 62 in r:  # 62 is HC
-                        i = r.index(HC)  # find index of HC
-                    if i >= 0:
-                        if r[i + 2] == self.ID:
-                            e = r[i + 6] << 8 | r[i + 5]  # extract encoder value            
-                            a = float(e / para.uintDegreeEncoder) # calculate angle from "e"
-
-                            if self.info.angle > 359.999:  # arithmetic overflow
-                                print("angle read error")
-                                return self.info.encoder, self.info.angle
-                            else:
-                                self.info.angle = a
-                                self.info.encoder = e
-
-                            # Determine whether the motor return angle is within the set range
-                            if self.info.angle > self.info.maxAngles and self.info.angle < 360.0 - self.info.maxAngles:
-                                print("angle read error")
-                            else:
-                                # Make the return angle "maxAngle" ~ "-maxAngle"
-                                if self.info.angle > 360.0-self.info.maxAngles:
-                                    self.info.angle = (self.info.angle + 180) % 360 - 180
-                                return self.info.encoder, self.info.angle
-                if n == 3:  # Failed to get encoder
-                    return self.info.encoder, self.info.angle
-                n += 1
-            except Exception as e:
-                print("ERROR:", e)
-                return self.info.encoder, self.info.angle
-
-    def getAngle(self):
-        _, angle = self.getEncoderAndAngle()
-        if self.ID == 2:
-            return angle + 45.0
+    def readMotorStatus2(self, data=None, cmd=0x9C):
+        header = 0x3E  # Frame header
+        command = cmd  # Command to read motor status 2
+        data_length = 0  # Data length, assumed to be 0 because the command does not require additional data
+        checksum = Checksum(header + command + self.ID) # Calculate checksum
+        
+        motor.ser.flushOutput()
+        if command == 0x9C:
+            # Sending the command frame
+            command_packet = struct.pack("5B", header, command, self.ID, data_length, checksum)
+            motor.send(command_packet, 5)
+        
+        # Receiving the response
+        if data is None:
+            response = motor.recv(13, 5)  # Update the byte length to match your data format
         else:
-            return angle
+            response = data
+            
+        rLen = len(response)
+        response = search_command(response, command)
+        print(f"Rx size:{rLen}, response: {hexStr(response)}")
+        if response is None:
+            return
+        hc, c, id, dlen, hcs, tmp, _, _, speed_low, speed_high, encoder_low, encoder_high, dcs = response
+
+        # Processing torque current and output power
+        if hc == HC and hcs == Checksum(sum([hc, c, id, dlen])):
+            # Processing motor speed
+            speed = (speed_high << 8) | speed_low
+            if speed > 32767:
+                speed -= 65536  # Convert to signed integer
+
+            # Processing encoder position
+            encoder = (encoder_high << 8) | encoder_low
+
+            # Updating motor information
+            self.info.update_encoder(encoder)
+            self.info.update_speed(speed)
+            self.info.temperature = tmp  # Assuming temperature is stored in the voltage property
+
+            print(f"Motor Status Updated: Temperature {tmp}, Speed {speed}, Encoder {encoder}")
+        else:
+            print("motor recv data error")
+            
+    def getAngle(self):
+        self.readMotorStatus2()
+        return self.info.getAngle()
     
     def bootPosition(self, pos):
-        for _ in range(6):
-            angle = int(self.getAngle()*10000000) / 10000000.0
-            pos *= 1.00000000000000000
-            if angle != pos:
-                move_val = int((pos-angle) * 100)
+        for i in range(6):  # 最多嘗試6次以達到指定的精度
+            print("bootPosition count:", i)
+            current_angle = self.getAngle()
+            print(current_angle)
+
+            if self.ID == 2:
+                # if current_angle > 90.0:
+                #     diff = (current_angle + 180) % 360 - 180
+                # else:
+                    diff = pos - current_angle
+            elif self.ID == 1:
+                if current_angle > 90.0:
+                    diff = ((current_angle + 180) % 360 - 180)
+                else:
+                    diff = (pos - current_angle)
+            move_val = int(diff * 100)
+            if abs(move_val) > 0:  # 只有當有實際移動時才發送命令
                 self.incrementTurnVal(move_val)
             else:
-                break
-
+                break  # 如果沒有需要移動的距離，則提前結束循環
+            delay(0.1)
+            
 # Calculate Checksum of received data
 def calc_value_Checksum(value):
     value = value & 0xFFFFFFFF
@@ -139,9 +180,11 @@ def motorSend(data, size):
     return motor.send(data, size)
 
 
-def motorRecv():
-    return motor.recv()
-
-
-
-    
+def search_command(response, command):
+    p = [i for i, value in enumerate(response) if value == HC]  # Find all the locations where Head Code appears
+    for i in p:
+        if i + 1 < len(response) and response[i + 1] == command:
+            if i + 13 <= len(response):
+                rep = response[i:i + 13]  # Starting from i, take 13 bytes
+                return rep
+    return None  
