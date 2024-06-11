@@ -28,9 +28,7 @@ import queue
 from tutorial_interfaces.msg import Img, Bbox, GimbalDegree
 #from mavros_msgs.msg import  Bbox, Img 
 
-pub_img = {"first_detect": False,
-           "second_detect": False,
-           "third_detect": False,
+pub_img = {"detect": False,
            "camera_center": False,
            "motor_pitch": 0.0,
            "motor_yaw": 0.0,
