@@ -254,13 +254,26 @@ def firstDetect():
     
     update_position_data() # Update GPS, IMU, Gimbal data
     delay(2) # Delay 2s
+
+
+def manage_queue(q, item):
+    """
+    Attempts to add an item to the queue. If the queue is full, it removes an item before adding the new one.
+    """
+    try:
+        q.put_nowait(item)  # Try to add the element
+    except queue.Full:
+        removed = q.get()  # Queue is full, remove one element
+        q.put(item)  # Then add the new element
+    except Exception as err:
+        print(f"manage_queue error: {err}")
+        pass
     
     
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
     project='runs/detect', name='exp', exist_ok=False, no_trace=False):
 
     source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
-    save_img = not nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
 
     # Initialize
@@ -328,9 +341,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
             p = Path(p)  # to Path
             
-            if len(det):
-                detectFlag = True
-                
+            if len(det):                
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
@@ -346,22 +357,25 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                         max_conf = conf
                         max_xyxy = xyxy
                     
-                    if save_img or view_img:  # Add bbox to image
+                    if view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
                     
                 
-                xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
-                
                 # Tracking and bbox enable condition
-                if sequentialHits > 4:
-                    if  bbox_filter_status:
-                        pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current
-                        print("bbox_filter_status is True")
+                if sequentialHits > 4 and bbox_filter_status:                  
+                    pub_img['detect'] = detectFlag = True
+                    xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
+                    
+                    manage_queue(detectStatusCtx,detectFlag)
+                    
+                    pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current
+                    print("bbox_filter_status is True")
                 
                 xyxy_previous = xyxy_current.copy()
                 print(f"current:{xyxy_current}, previous:{xyxy_previous}")
             else:
+                manage_queue(detectStatusCtx,detectFlag)
                 pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
                 
             # Stream results
@@ -375,35 +389,16 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         print_detection_info(s, sequentialHits, t2, t1, t3)
         
         # tracking
-        pub_img["camera_center"] = PID(max_xyxy)
+        if bbox_filter_status:
+            pub_img["camera_center"] = PID(max_xyxy)
         
 
-def positionTask(hitsStatus:queue.Queue):
+def positionTask(detectqueue:queue.Queue):
+    ds = None
     while True:
-        stat = hitsStatus.full()
-        if stat:
-            hs = hitsStatus.get()
-            if pub_img["hold_status"]:
-                print("second detect")
-                # Continue detection after descending five meters
-                if sequentialHits_status == 1 and hs:  # Detect target for the second time
-                    if pub_img["camera_center"] :
-                        secondDetect()           
-                        while not pub_img["hold_status"]:
-                            pub_img["send_info"] = False
-                            # sequentialHits_status = 2
-
-            else:  # first_detect == False
-                # Target detected for the first time and Aim at targets
-                if sequentialHits_status == 0 and hs:  # Detect target for the first time
-                    print("first detect")
-
-                if pub_img["camera_center"] and pub_img["hold_status"]:  # target centered and drone is hold
-                    firstDetect()
-                    while not sub.getHold():
-                        pub_img["send_info"] = False
-                        sequentialHits_status = 1
-  
+        if detectqueue.full():
+            ds = detectqueue.get()
+            
 
 def main():
     # ROS2
@@ -411,8 +406,9 @@ def main():
     spinThread.start()
         
     # Position Task
-    hitsStatus = queue.Queue()
-    posTask = threading.Thread(target=positionTask, args=(hitsStatus))
+    global detectStatusCtx 
+    detectStatusCtx = queue.Queue()
+    posTask = threading.Thread(target=positionTask, args=(detectStatusCtx))
     posTask.start
 
     # Settings directly specified here
