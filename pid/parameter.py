@@ -13,7 +13,14 @@ def calcVertical_FOV(diagonal_size=4.60, horizontal_fov_deg=77):
     # Convert half of the vertical FOV to degrees
     vertical_fov_deg = math.degrees(2 * vertical_fov_rad_half)
     return vertical_fov_deg
-            
+
+
+def hexStr(response):
+    if response is not None:
+        hex_string = ' '.join(f'{byte:02x}' for byte in response)
+        return hex_string
+    return None
+        
 
 class Parameters():
     pi = math.pi
