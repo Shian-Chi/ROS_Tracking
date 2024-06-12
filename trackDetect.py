@@ -355,7 +355,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 
                 # Tracking and bbox enable condition
                 if sequentialHits > 4:
-                    bbox_filter_status = bbox_filter(xyxy_current, xyxy_previous)
                     if  bbox_filter_status:
                         pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current
                         print("bbox_filter_status is True")
@@ -376,8 +375,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         print_detection_info(s, sequentialHits, t2, t1, t3)
         
         # tracking
-        if bbox_filter_status:
-            pub_img["camera_center"] = PID(max_xyxy)
+        pub_img["camera_center"] = PID(max_xyxy)
         
 
 def positionTask(hitsStatus:queue.Queue):
