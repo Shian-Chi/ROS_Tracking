@@ -405,29 +405,13 @@ def positionTask(hitsStatus:queue.Queue):
                     while not sub.getHold():
                         pub_img["send_info"] = False
                         sequentialHits_status = 1
-
-
-def groundGimbalCtrl(angleQ:queue.Queue):
-    while True:
-        if angleQ.full:
-            yawA, pitchA = angleQ.get()
-            yawA = int(yawA * 100)
-            pitchA = int(pitchA * 100)
-            yaw.singleTurnVal(yawA)
-            pitch.singleTurnVal(pitchA)
-        time.sleep(0.01)
-    
+  
 
 def main():
     # ROS2
     spinThread = threading.Thread(target=_spinThread, args=(pub, sub))
     spinThread.start()
-    
-    # Ground Gimbal Ctrl
-    degQueue = queue.Queue(maxsize=1)
-    groundCtrl = threading.Thread(target=groundGimbalCtrl, args=(degQueue))
-    groundCtrl.start()
-    
+        
     # Position Task
     hitsStatus = queue.Queue()
     posTask = threading.Thread(target=positionTask, args=(hitsStatus))
