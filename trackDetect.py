@@ -406,9 +406,9 @@ def main():
     spinThread.start()
         
     # Position Task
-    global detectStatusCtx 
-    detectStatusCtx = queue.Queue()
-    posTask = threading.Thread(target=positionTask, args=(detectStatusCtx))
+    global detectStatusCtx
+    detectStatusCtx = queue.Queue() 
+    posTask = threading.Thread(target=positionTask, args=(detectStatusCtx)) 
     posTask.start
 
     # Settings directly specified here
