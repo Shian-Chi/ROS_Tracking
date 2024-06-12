@@ -366,9 +366,9 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
                 
             # Stream results
-            if view_img:
-                cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
+            # if view_img:
+            #     cv2.imshow(str(p), im0)
+            #     cv2.waitKey(1)  # 1 millisecond
             
         sequentialHits = sequentialHits + 1 if detectFlag else 0
         sequentialHitsStatus = sequentialHits > 4
