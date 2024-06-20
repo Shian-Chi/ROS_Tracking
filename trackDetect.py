@@ -1,3 +1,4 @@
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import ReliabilityPolicy, QoSProfile
@@ -23,9 +24,11 @@ from pid.pid import PID_Ctrl
 from pid.parameter import Parameters
 from pid.motor import motorCtrl
 from pid.position import verticalTargetPositioning
+from lidar.lidar import LIDARLite_v4LED
+
 import threading
 import queue
-from tutorial_interfaces.msg import Img, Bbox, GimbalDegree
+from tutorial_interfaces.msg import Img, Bbox, GimbalDegree, Lidar
 #from mavros_msgs.msg import  Bbox, Img 
 
 pub_img = {"detect": False,
@@ -44,6 +47,8 @@ pub_bbox = {'x0': 0,
         'y1': 0
         }
 
+pub_lidar = {'distance': 0.0}
+
 rclpy.init()
 
 para = Parameters()
@@ -54,7 +59,7 @@ position = verticalTargetPositioning()
 def delay(s: int):
     s += 1
     for i in range(1, s):
-        print(f"{i}s")
+        print(f"sleep: {i}s")
         time.sleep(1)
 
 
@@ -80,16 +85,17 @@ def radian_conv_degree(Radian):
     return ((Radian / math.pi) * 180)
 
 
-yaw = motorCtrl(1, 0, 90)
-delay(3)
-pitch = motorCtrl(2, 0, 45)
+yaw = motorCtrl(1, "yaw", 0, 90)
+time.sleep(1)
+pitch = motorCtrl(2, "pitch", 0, 360)
 
 def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
     flag, m_flag1, m_flag2 = False, False, False  # Motor move status
     pidErr = pid.pid_run(frameCenter_X, frameCenter_Y)
     # Motor rotation
     if abs(pidErr[0]) != 0:
-        yaw.incrementTurnVal(int(pidErr[0]*100))
+        d = yaw.incrementTurnVal(int(pidErr[0]*100))
+        
         m_flag1 = False
     else:
         m_flag1 = True
@@ -103,15 +109,15 @@ def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
     # print(f"yaw: {pidErr[0]:.3f}, pitch: {pidErr[1]:.3f}")
 
     # get Encoder and angle
-    global pub_img
-    pub_img["motor_yaw"] = yaw.getAngle()
-    pub_img["motor_pitch"] = pitch.getAngle()
+    # global pub_img
+    # pub_img["motor_yaw"] = yaw.getAngle()
+    # pub_img["motor_pitch"] = pitch.getAngle()
     # print(f"{pub_img["motor_yaw"]}, {pub_img["motor_pitch"]}")
 
-    if pub_img["motor_pitch"] > 0.0:
-        pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] + 45.0)
-    elif pub_img["motor_pitch"] < 0.0:
-        pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] - 45.0)
+    # if pub_img["motor_pitch"] > 0.0:
+    #     pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] + 45.0)
+    # elif pub_img["motor_pitch"] < 0.0:
+    #     pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] - 45.0)
     flag = m_flag1 and m_flag2
     return flag
 
@@ -126,16 +132,24 @@ def PID(xyxy):
 class MinimalPublisher(Node):
     def __init__(self):
         super().__init__("minimal_publisher")
+        # Img publish
         self.imgPublish = self.create_publisher(Img, "img", 10)
         img_timer_period = 1/35
         self.img_timer = self.create_timer(img_timer_period, self.img_callback)
 
+        # Bbox publish
         self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
         bbox_timer_period = 1/10
         self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
 
+        # Lidar Publish
+        self.disPublish = self.create_publisher(Lidar, "lidar", 10)
+        lidar_timer = 1 / 10
+        self.lidar_timer = self.create_timer(lidar_timer, self.lidar_callback)
+        
         self.img = Img()
         self.bbox = Bbox()
+        self.distance = Lidar()
 
     def img_callback(self):
         self.img.detect, self.img.camera_center, self.img.motor_pitch, \
@@ -150,7 +164,10 @@ class MinimalPublisher(Node):
         self.bbox.y1 = int(pub_bbox['y1'])
         self.bboxPublish.publish(self.bbox)
 
-
+    def lidar_callback(self):
+        dis = np.float(pub_lidar['distance'])
+        self.distance.distance_cm = dis
+    
 class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
@@ -246,6 +263,7 @@ def secondDetect():
     pub_img["target_longitude"], pub_img["target_latitude"], pub_img["third_detect"], pub_img["camera_center"] = tlo, tla, True, False
     delay(2)
 
+
 def firstDetect():
     pub_img["send_info"] = True
     
@@ -269,7 +287,29 @@ def manage_queue(q, item):
         print(f"manage_queue error: {err}")
         pass
     
+
+def lidar_distance(disCtx):
+    lidar = LIDARLite_v4LED()# 建立 LIDAR-Lite v4 LED 對象
+
+    try:
+        while True:
+            lidar.configure() # 設定感測器
+            lidar.takeRange() # 發送測量指令
+            lidar.waitForBusy() # 等待測量完成
+            distance = lidar.readDistance() / 256 # 讀取距離數據
+            manage_queue(disCtx, distance)
+            # print("Distance:", distance, "cm") # 列印距離數據
+            time.sleep(0.1) # 延遲
+    except KeyboardInterrupt:
+        print("Measurement stopped by user")
+
+
+def gimbalCtrl(xyxyCtx:queue.Queue):
+    while True:
+        if xyxyCtx.full:
+            PID(xyxyCtx.get())
     
+
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
     project='runs/detect', name='exp', exist_ok=False, no_trace=False):
 
@@ -309,6 +349,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     bbox_filter_status = False
     
     # record xyxy position
+    xyxy_current = []
     xyxy_previous = [0,0,0,0]
     
     t0 = time.time()
@@ -341,7 +382,8 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
             p = Path(p)  # to Path
             
-            if len(det):                
+            if len(det):
+                detectFlag = True                
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
@@ -363,18 +405,21 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     
                 
                 # Tracking and bbox enable condition
-                if sequentialHits > 4 and bbox_filter_status:                  
-                    pub_img['detect'] = detectFlag = True
+                if sequentialHits > 4 :                  
+                    pub_img['detect'] = detectFlag = True 
                     xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
                     
-                    manage_queue(detectStatusCtx,detectFlag)
+                    filter_stat = bbox_filter(xyxy_current, xyxy_previous)
+                    if filter_stat:
+                        manage_queue(detectStatusCtx, detectFlag)
+                        
+                        pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current
+                        print("bbox_filter_status is True")
                     
-                    pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current
-                    print("bbox_filter_status is True")
-                
-                xyxy_previous = xyxy_current.copy()
-                print(f"current:{xyxy_current}, previous:{xyxy_previous}")
+                        xyxy_previous = xyxy_current.copy()
+                        print(f"current:{xyxy_current}, previous:{xyxy_previous}")
             else:
+                pub_img['detect'] = detectFlag = False 
                 manage_queue(detectStatusCtx,detectFlag)
                 pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
                 
@@ -387,10 +432,10 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         sequentialHitsStatus = sequentialHits > 4
         
         print_detection_info(s, sequentialHits, t2, t1, t3)
-        
         # tracking
-        if bbox_filter_status:
-            pub_img["camera_center"] = PID(max_xyxy)
+        # if bbox_filter_status:
+        # pub_img["camera_center"] = PID(max_xyxy)
+        xyxyCtx.put(max_xyxy)
         
 
 def positionTask(detectqueue:queue.Queue):
@@ -404,7 +449,19 @@ def main():
     # ROS2
     spinThread = threading.Thread(target=_spinThread, args=(pub, sub))
     spinThread.start()
-        
+    
+    # Gimbal
+    global xyxyCtx
+    xyxyCtx = queue.Queue(maxsize=1)
+    gimbalThread = threading.Thread(target=gimbalCtrl, args=(xyxyCtx,))
+    gimbalThread.start()
+    
+    # Lidar
+    global lidarCtx
+    lidarCtx = queue.Queue(maxsize=1)
+    lidarThread = threading.Thread(target=lidar_distance, args=(lidarCtx,))
+    lidarThread.start()
+    
     # Position Task
     global detectStatusCtx
     detectStatusCtx = queue.Queue() 
