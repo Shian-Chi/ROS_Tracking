@@ -28,7 +28,7 @@ from tutorial_interfaces.srv import DroneStatus, DroneMissionPath
 from tutorial_interfaces.msg import Img, Bbox, GimbalDegree
 
 drone_point = [] #無人機不固定飛行點
-ipaddr = '172.22.64.52'
+ipaddr = '192.168.0.75'
 port = 80
 drone_id = bytes('\x02', 'utf-8')
 
@@ -83,9 +83,10 @@ class DroneSubscribeNode(Node):
         self.longitude = 0.0
         self.heading = 0.0 
         
-        self.first_detect = False
-        self.second_detect = False
-        self.third_detect = False
+        self.detect = False
+        # self.first_detect = False
+        # self.second_detect = False
+        # self.third_detect = False
         self.camera_center = False
         self.motor_pitch = 0.0
         self.motor_yaw = 0.0
@@ -106,9 +107,10 @@ class DroneSubscribeNode(Node):
         self.y1 = Bbox.y1
         
     def IMGcb(self,Img):
-        self.first_detect = Img.first_detect
-        self.second_detect = Img.second_detect
-        self.third_detect = Img.third_detect
+        self.detect = Img.detect
+        # self.first_detect = Img.first_detect
+        # self.second_detect = Img.second_detect
+        # self.third_detect = Img.third_detect
         self.camera_center = Img.camera_center
         self.motor_pitch = Img.motor_pitch
         self.motor_yaw = Img.motor_yaw
