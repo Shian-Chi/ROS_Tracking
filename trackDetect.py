@@ -50,17 +50,11 @@ pub_bbox = {'x0': 0,
 pub_lidar = {'distance': 0.0}
 
 rclpy.init()
+stop_event = threading.Event()
 
 para = Parameters()
 pid = PID_Ctrl()
 position = verticalTargetPositioning()
-
-
-def delay(s: int):
-    s += 1
-    for i in range(1, s):
-        print(f"sleep: {i}s")
-        time.sleep(1)
 
 
 def print_detection_info(s, detect_count, end_inference, start_inference, end_nms):
@@ -75,10 +69,9 @@ def print_detection_info(s, detect_count, end_inference, start_inference, end_nm
 def bbox_filter(xyxy0, xyxy1):
     c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
     c1 = [((xyxy1[0] + xyxy1[2]) / 2), ((xyxy1[1] + xyxy1[3]) / 2)]
-
-    dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c1[1])**2))
     
-    return dis <= 256
+    dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c0[1])**2))
+    return dis<=256, dis
 
 
 def radian_conv_degree(Radian):
@@ -87,44 +80,37 @@ def radian_conv_degree(Radian):
 
 yaw = motorCtrl(1, "yaw", 0, 90)
 time.sleep(1)
-pitch = motorCtrl(2, "pitch", 0, 360)
+pitch = motorCtrl(2, "pitch", 95, 360)
 
 def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
     flag, m_flag1, m_flag2 = False, False, False  # Motor move status
     pidErr = pid.pid_run(frameCenter_X, frameCenter_Y)
     # Motor rotation
-    if abs(pidErr[0]) != 0:
-        d = yaw.incrementTurnVal(int(pidErr[0]*100))
-        
-        m_flag1 = False
-    else:
-        m_flag1 = True
+    # if abs(pidErr[0]) != 0:
+    #     ycmd, yinfo = yaw.incrementTurnVal(int(pidErr[0]*100))
+    #     yaw.readMotorStatus2(yinfo, ycmd)
+    #     yaw_angle = yaw.info.getAngle() 
+    # else:
+    #     m_flag1 = True
 
-    if abs(pidErr[1]) != 0:
-        pitch.incrementTurnVal(int(pidErr[1]*100))
-        m_flag2 = False
-    else:
-        m_flag2 = True
-
-    # print(f"yaw: {pidErr[0]:.3f}, pitch: {pidErr[1]:.3f}")
-
-    # get Encoder and angle
-    # global pub_img
-    # pub_img["motor_yaw"] = yaw.getAngle()
-    # pub_img["motor_pitch"] = pitch.getAngle()
-    # print(f"{pub_img["motor_yaw"]}, {pub_img["motor_pitch"]}")
-
-    # if pub_img["motor_pitch"] > 0.0:
-    #     pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] + 45.0)
-    # elif pub_img["motor_pitch"] < 0.0:
-    #     pub_img["motor_pitch"] = abs(pub_img["motor_pitch"] - 45.0)
-    flag = m_flag1 and m_flag2
-    return flag
+    # if abs(pidErr[1]) != 0:
+    #     pcmd, pinfo = pitch.incrementTurnVal(int(pidErr[1]*100))
+    #     pitch.readMotorStatus2(pinfo, pcmd)
+    #     pitch_angle = pitch.info.getAngle()
+    # else:
+    #     m_flag2 = True
+    
+    yaw.incrementTurnVal(int(pidErr[0]*100))
+    pitch.incrementTurnVal(int(pidErr[1]*100))
+    
+    return pidErr[0]<=19 and pidErr[1]<=11
 
 
 def PID(xyxy):
     if xyxy is not None:
         # Calculate the center point of the image frame
+        # print(f"PID:   yaw: {pub_img['motor_yaw']}, pitch: {pub_img['motor_pitch']}")
+        # print(f"motor: yaw: {yaw.info.getAngle()}, pitch: {pitch.info.getAngle()}")
         return motorPID_Ctrl(((xyxy[0] + xyxy[2]) / 2).item(), ((xyxy[1] + xyxy[3]) / 2).item())
     return False
 
@@ -152,9 +138,8 @@ class MinimalPublisher(Node):
         self.distance = Lidar()
 
     def img_callback(self):
-        self.img.detect, self.img.camera_center, self.img.motor_pitch, \
-            self.img.motor_yaw, self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()
-
+        self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
+            self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()        
         self.imgPublish.publish(self.img)
 
     def bbox_callback(self):
@@ -165,7 +150,7 @@ class MinimalPublisher(Node):
         self.bboxPublish.publish(self.bbox)
 
     def lidar_callback(self):
-        dis = np.float(pub_lidar['distance'])
+        dis = float(pub_lidar['distance'])
         self.distance.distance_cm = dis
     
 class MinimalSubscriber(Node):
@@ -261,7 +246,7 @@ def secondDetect():
 
     tla, tlo = position.groundTargetPostion()
     pub_img["target_longitude"], pub_img["target_latitude"], pub_img["third_detect"], pub_img["camera_center"] = tlo, tla, True, False
-    delay(2)
+    time.sleep(2)
 
 
 def firstDetect():
@@ -271,7 +256,7 @@ def firstDetect():
     pub_img["target_longitude"], pub_img["target_latitude"], pub_img["camera_center"] = sub.getLongitude(), sub.getLatitude(), False
     
     update_position_data() # Update GPS, IMU, Gimbal data
-    delay(2) # Delay 2s
+    time.sleep(2) # Delay 2s
 
 
 def manage_queue(q, item):
@@ -305,13 +290,19 @@ def lidar_distance(disCtx):
 
 
 def gimbalCtrl(xyxyCtx:queue.Queue):
-    while True:
-        if xyxyCtx.full:
-            PID(xyxyCtx.get())
-    
+    try:
+        while True:
+            if xyxyCtx.full:
+                pub_img["camera_center"] = PID(xyxyCtx.get())
+            pub_img['motor_pitch'] = yaw.getAngle()
+            time.sleep(0.01)
+            pub_img['motor_yaw'] = pitch.getAngle()
+            print(f"Yaw: {pub_img['motor_yaw']}), Pitch: {pub_img['motor_pitch']}")
+    except KeyboardInterrupt:
+        yaw.stop()
+        pitch.stop()
 
-def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, nosave=False, classes=None, agnostic_nms=False, augment=False, \
-    project='runs/detect', name='exp', exist_ok=False, no_trace=False):
+def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False, no_trace=False):
 
     source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
@@ -349,125 +340,118 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     bbox_filter_status = False
     
     # record xyxy position
-    xyxy_current = []
+    xyxy_current = [0,0,0,0]
     xyxy_previous = [0,0,0,0]
     
-    t0 = time.time()
-    for path, img, im0s, vid_cap in dataset:
-        img = torch.from_numpy(img).to(device)
-        img = img.half() # uint8 to fp16
-        img /= 255.0  # 0 - 255 to 0.0 - 1.0
-        if img.ndimension() == 3:
-            img = img.unsqueeze(0)
+    try:
+        for path, img, im0s, vid_cap in dataset:
+            img = torch.from_numpy(img).to(device)
+            img = img.half() # uint8 to fp16
+            img /= 255.0  # 0 - 255 to 0.0 - 1.0
+            if img.ndimension() == 3:
+                img = img.unsqueeze(0)
 
-        # Inference
-        t1 = time_synchronized()
-        with torch.no_grad():
-            pred = model(img, augment=augment)[0]
-        t2 = time_synchronized()
+            # Inference
+            t1 = time_synchronized()
+            with torch.no_grad():
+                pred = model(img, augment=augment)[0]
+            t2 = time_synchronized()
 
-        # Apply NMS
-        pred = non_max_suppression(pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
-        t3 = time_synchronized()
+            # Apply NMS
+            pred = non_max_suppression(pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
+            t3 = time_synchronized()
 
-        # Process detections
-        for i, det in enumerate(pred):  # detections per image
-            # Status setting
-            max_conf = -1  # Variable to store the maximum confidence value
-            max_xyxy = None  # Variable to store the xyxy with the maximum confidence
-            detectFlag = False
-            
-            if webcam:
-                p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
-
-            p = Path(p)  # to Path
-            
-            if len(det):
-                detectFlag = True                
-                # Rescale boxes from img_size to im0 size
-                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
-
-                # Print results
-                for c in det[:, -1].unique():
-                    n = (det[:, -1] == c).sum()  # detections per class
-                    # add to string
-                    s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "
-
-                # Write results
-                for *xyxy, conf, cls in reversed(det):
-                    if conf > max_conf:
-                        max_conf = conf
-                        max_xyxy = xyxy
-                    
-                    if view_img:  # Add bbox to image
-                        label = f'{names[int(cls)]} {conf:.2f}'
-                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
-                    
+            # Process detections
+            for i, det in enumerate(pred):  # detections per image
+                # Status setting
+                max_conf = -1  # Variable to store the maximum confidence value
+                max_xyxy = None  # Variable to store the xyxy with the maximum confidence
+                detectFlag = False
                 
-                # Tracking and bbox enable condition
-                if sequentialHits > 4 :                  
-                    pub_img['detect'] = detectFlag = True 
-                    xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
-                    
-                    filter_stat = bbox_filter(xyxy_current, xyxy_previous)
-                    if filter_stat:
-                        manage_queue(detectStatusCtx, detectFlag)
+                if webcam:
+                    p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
+
+                p = Path(p)  # to Path
+                
+                if len(det):
+                    detectFlag = True                
+                    # Rescale boxes from img_size to im0 size
+                    det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
+
+                    # Print results
+                    for c in det[:, -1].unique():
+                        n = (det[:, -1] == c).sum()  # detections per class
+                        # add to string
+                        s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "
+
+                    # Write results
+                    for *xyxy, conf, cls in reversed(det):
+                        if conf > max_conf:
+                            max_conf = conf
+                            max_xyxy = xyxy
                         
-                        pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current
-                        print("bbox_filter_status is True")
+                        if view_img:  # Add bbox to image
+                            label = f'{names[int(cls)]} {conf:.2f}'
+                            plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
+                        
                     
-                        xyxy_previous = xyxy_current.copy()
-                        print(f"current:{xyxy_current}, previous:{xyxy_previous}")
-            else:
-                pub_img['detect'] = detectFlag = False 
-                manage_queue(detectStatusCtx,detectFlag)
-                pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
+                    # Tracking and bbox enable condition
+                    if sequentialHits > 4 :                  
+                        pub_img['detect'] = detectFlag = True 
+                        xyxy_current = np.array([t.item() for t in max_xyxy], dtype='i4')
+                        
+                        filter_stat, _ = bbox_filter(xyxy_current, xyxy_previous)
+                        if filter_stat:                        
+                            pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy_current                    
+                else:
+                    pub_img['detect'] = detectFlag = False 
+                    pub_bbox["x0"] = pub_bbox['y0'] = pub_bbox['x1'] = pub_bbox["y1"] = 0
+                    
+                # Stream results
+                # if view_img:
+                #     cv2.imshow(str(p), im0)
+                #     cv2.waitKey(1)  # 1 millisecond
                 
-            # Stream results
-            # if view_img:
-            #     cv2.imshow(str(p), im0)
-            #     cv2.waitKey(1)  # 1 millisecond
+            xyxy_previous = xyxy_current.copy()
+            # print(f"current:{xyxy_current}, previous:{xyxy_previous}")
             
-        sequentialHits = sequentialHits + 1 if detectFlag else 0
-        sequentialHitsStatus = sequentialHits > 4
-        
-        print_detection_info(s, sequentialHits, t2, t1, t3)
-        # tracking
-        # if bbox_filter_status:
-        # pub_img["camera_center"] = PID(max_xyxy)
-        xyxyCtx.put(max_xyxy)
-        
+            sequentialHits = sequentialHits + 1 if detectFlag else 0
+            
+            print_detection_info(s, sequentialHits, t2, t1, t3)
 
-def positionTask(detectqueue:queue.Queue):
-    ds = None
-    while True:
-        if detectqueue.full():
-            ds = detectqueue.get()
-            
+            xyxyCtx.put(max_xyxy)
+    except KeyboardInterrupt:
+        print("KeyboardInterrupt")
+        stop_event.set()
+        for t in threadList:
+            t.join()
+        yaw.stop()
+        pitch.stop()
+
 
 def main():
+    global threadList
+    threadList = []
+    
     # ROS2
     spinThread = threading.Thread(target=_spinThread, args=(pub, sub))
-    spinThread.start()
+    threadList.append(spinThread)
     
     # Gimbal
     global xyxyCtx
-    xyxyCtx = queue.Queue(maxsize=1)
+    xyxyCtx = queue.Queue(maxsize=10)
     gimbalThread = threading.Thread(target=gimbalCtrl, args=(xyxyCtx,))
-    gimbalThread.start()
+    threadList.append(gimbalThread)
     
     # Lidar
     global lidarCtx
     lidarCtx = queue.Queue(maxsize=1)
     lidarThread = threading.Thread(target=lidar_distance, args=(lidarCtx,))
-    lidarThread.start()
+    threadList.append(lidarThread)
     
-    # Position Task
-    global detectStatusCtx
-    detectStatusCtx = queue.Queue() 
-    posTask = threading.Thread(target=positionTask, args=(detectStatusCtx)) 
-    posTask.start
-
+    for thread in threadList:
+        thread.start()
+    
     # Settings directly specified here
     weights = 'landpad20240522.pt'             # Model weights file path
     source = 'rtsp://127.0.0.2:8080/test'       # Data source path
@@ -476,19 +460,15 @@ def main():
     iou_thres = 0.45                  # IOU threshold for NMS
     device = '0'                       # Device to run the inference on, '' for auto-select
     view_img = not True                   # Whether to display images during processing
-    nosave = False                    # Whether not to save images/videos
     # Specific classes to detect, None means detect all classes
     classes = None
     agnostic_nms = False              # Apply class-agnostic NMS
     augment = False                   # Augmented inference
-    project = 'runs/detect'           # Base directory for saving runs
-    name = 'exp'                      # Name of the run
-    exist_ok = False                   # Overwrite existing files/directories if necessary
     no_trace = False                   # Don't trace the model for optimizations
     # Call the detect function with all the specified settings
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
-               nosave, classes, agnostic_nms, augment, project, name, exist_ok, no_trace)
+               classes, agnostic_nms, augment, no_trace)
 
 
 if __name__ == '__main__':
