@@ -18,7 +18,6 @@ from pid.parameter import Parameters
 from pid.motor import motorCtrl
 
 import threading as thrd
-import multiprocessing as mp
 import sys, signal
 import queue, math
 
@@ -26,10 +25,10 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import ReliabilityPolicy, QoSProfile
 from rclpy.executors import MultiThreadedExecutor
-from sensor_msgs.msg import NavSatFix, Imu, Image
+from sensor_msgs.msg import NavSatFix, Imu
 from transforms3d import euler
 from cv_bridge import CvBridge
-from tutorial_interfaces.msg import Img, Bbox, GimbalDegree, Lidar
+from tutorial_interfaces.msg import Img, Bbox, GimbalDegree, Lidar, MotorInfo
 # from mavros_msgs.msg import Altitude, Lidar, Bbox, Img
 
 
@@ -54,9 +53,17 @@ pub_bbox = {
 }
 
 
+motor_pub ={
+    'pitchAngle': 0.0,
+    'yawAngle': 0.0,
+    'pitchPluse' : 0,
+    'yawPluse' : 0
+}
+
+
 pid = PID_Ctrl()
 bridge = CvBridge()
-
+para = Parameters()
 
 def signal_handler(sig, frame):
     global yaw, pitch, ROS_Pub, ROS_Sub
@@ -94,6 +101,7 @@ def writeToFile(filename, data):
     except IOError as e:
         print(f"Failed to write to file: {e}")
 
+
 class MinimalPublisher(Node):
     def __init__(self):
         super().__init__("minimal_publisher")
@@ -107,9 +115,15 @@ class MinimalPublisher(Node):
         bbox_timer_period = 1/10
         self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
        
+        # MotorInfo publish
+        self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
+        motor_timer_period = 1/10
+        self.motor_timer = self.create_timer(motor_timer_period, self.motor_callback)
+        
         self.img = Img()
         self.bbox = Bbox()
-
+        self.motorInfo = MotorInfo()
+        
     def img_callback(self):
         self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
             self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()        
@@ -129,7 +143,19 @@ class MinimalPublisher(Node):
         # Publish BoundingBox message
         self.bboxPublish.publish(bbox_msg)
 
-
+    def motor_callback(self):
+        _, yawData = yaw.getEncoder()
+        time.sleep(0.01)
+        _, pitchData = pitch.getEncoder()
+        
+        self.motorInfo.pitch_pluse = motor_pub['pitchPluse'] = pitchData
+        self.motorInfo.yaw_pluse = motor_pub['yawPluse'] = yawData  
+        self.motorInfo.pitch_angle = motor_pub['pitchAngle']  = yawData / para.uintDegreeEncoder
+        self.motorInfo.yaw_angle = motor_pub['yawAngle'] = pitchData / para.uintDegreeEncoder
+        
+        self.motorInfoPublish.publish(self.motorInfo)
+    
+    
 class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")

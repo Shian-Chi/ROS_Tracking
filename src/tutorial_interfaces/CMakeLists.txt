@@ -31,6 +31,7 @@ if(BUILD_TESTING)
     "msg/Bbox.msg"
     "msg/GimbalDegree.msg"
     "msg/Lidar.msg"
+    "msg/MotorInfo.msg"
     "srv/DroneMissionPath.srv"
     "srv/DroneStatus.srv"
 )
