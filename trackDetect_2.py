@@ -1,291 +1,466 @@
 import time
 from pathlib import Path
+
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
+# from numpy import random
 import numpy as np
 from models.experimental import attempt_load
-from utils.datasets import LoadStreams
-from utils.general import check_img_size, check_imshow, non_max_suppression, scale_coords, set_logging, increment_path
+from utils.datasets import LoadStreams, LoadImages
+from utils.general import check_img_size, check_imshow, non_max_suppression, apply_classifier, \
+    scale_coords, set_logging
 from utils.plots import plot_one_box
-from utils.torch_utils import select_device, time_synchronized, TracedModel
+from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
 
-import torch.multiprocessing as mp
-import queue
-import signal
-import sys
+from pid.pid import PID_Ctrl
+from pid.parameter import Parameters
+from pid.motor import motorCtrl
 
-def signal_handler(signal, frame):
-    print(f"Received signal: {signal}, shutting down...")
-    mp_gimbal.terminate()
-    mp_task.terminate()    
-    sys.exit(0)
-    
-pub_img = {
-    "first_detect": False,
-    "second_detect": False,
-    "third_detect": False,
-    "camera_center": False,
-    "motor_pitch": 0.0,
-    "motor_yaw": 0.0,
-    "target_latitude": 0.0,
-    "target_longitude": 0.0,
-    "hold_status": False,
-    "send_info": False
-}
+import threading as thrd
+import multiprocessing as mp
+import sys, signal
+import queue, math
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import ReliabilityPolicy, QoSProfile
+from rclpy.executors import MultiThreadedExecutor
+from sensor_msgs.msg import NavSatFix, Imu, Image
+from transforms3d import euler
+from cv_bridge import CvBridge
+from tutorial_interfaces.msg import Img, Bbox, GimbalDegree, Lidar
+# from mavros_msgs.msg import Altitude, Lidar, Bbox, Img
+
+
+pub_img = {"detect": False,
+           "camera_center": False,
+           "motor_pitch": 0.0,
+           "motor_yaw": 0.0,
+           "target_latitude": 0.0,
+           "target_longitude": 0.0,
+           "hold_status": False,
+           "send_info": False
+           }
+
 
 pub_bbox = {
+    'class_id': 0,
+    'confidence': 0.0,
     'x0': 0,
     'x1': 0,
     'y0': 0,
     'y1': 0
 }
 
-def manage_queue(q:mp.Queue, item):
+
+pid = PID_Ctrl()
+bridge = CvBridge()
+
+
+def signal_handler(sig, frame):
+    global yaw, pitch, ROS_Pub, ROS_Sub
+    print('Signal detected, shutting down gracefully...')
+    yaw.stop()
+    pitch.stop()
+    ROS_Pub.destroy_node()
+    ROS_Sub.destroy_node()
+    rclpy.shutdown()
+    sys.exit(0)
+    
+
+def radian_conv_degree(Radian):
+    return ((Radian / math.pi) * 180)
+
+
+def manage_queue(q, item):
+    """
+    Attempts to add an item to the queue. If the queue is full, it removes an item before adding the new one.
+    """
     try:
-        q.put_nowait(item)
+        q.put_nowait(item)  # Try to add the element
     except queue.Full:
-        removed = q.get()
-        q.put(item)
-    except queue.Empty:
-        print("Attempted to remove item from an empty queue")
+        removed = q.get()  # Queue is full, remove one element
+        q.put(item)  # Then add the new element with a proper timeout
     except Exception as err:
         print(f"manage_queue error: {err}")
+        pass
 
-class ObjectDetector:
-    def __init__(self, detectCtx:mp.Queue, weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False, project='runs/detect', name='exp', exist_ok=False, no_trace=False, save_txt=False):
-        self.detectInfoCtx = detectCtx
-        self.weights = weights
-        self.source = str(source)
-        self.img_size = img_size
-        self.conf_thres = conf_thres
-        self.iou_thres = iou_thres
-        self.device = device
-        self.view_img = view_img
-        self.classes = classes
-        self.agnostic_nms = agnostic_nms
-        self.augment = augment
-        self.project = project
-        self.name = name
-        self.exist_ok = exist_ok
-        self.trace = no_trace
-        self.save_txt = save_txt
 
-        self.webcam = self.source.isnumeric() or self.source.endswith('.txt') or self.source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
-        self.save_dir = Path(increment_path(Path(project) / name, exist_ok=exist_ok))
-        (self.save_dir / 'labels' if save_txt else self.save_dir).mkdir(parents=True, exist_ok=True)
+def writeToFile(filename, data):
+    try:
+        with open(filename, 'a') as file:
+            file.write(f"{data}\n")
+    except IOError as e:
+        print(f"Failed to write to file: {e}")
 
-        set_logging()
-        self.device = select_device(device)
-        self.model = attempt_load(weights, map_location=self.device)
-        self.stride = int(self.model.stride.max())
-        self.imgsz = check_img_size(self.img_size, s=self.stride)
+class MinimalPublisher(Node):
+    def __init__(self):
+        super().__init__("minimal_publisher")
+        # Img publish
+        self.imgPublish = self.create_publisher(Img, "img", 10)
+        img_timer_period = 1/35
+        self.img_timer = self.create_timer(img_timer_period, self.img_callback)
 
-        if self.trace:
-            self.model = TracedModel(self.model, self.device, self.img_size)
+        # Bbox publish
+        self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
+        bbox_timer_period = 1/10
+        self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
+       
+        self.img = Img()
+        self.bbox = Bbox()
 
-        self.model.half()
+    def img_callback(self):
+        self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
+            self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()        
+        self.imgPublish.publish(self.img)
 
-        self.vid_path, self.vid_writer = None, None
+    def bbox_callback(self):
+        bbox_msg = Bbox()
+        bbox_msg.class_id = pub_bbox['class_id']
+        bbox_msg.confidence = pub_bbox['confidence']
 
-        if self.view_img:
-            self.view_img = check_imshow()
-            cudnn.benchmark = True
+        bbox_msg.x0 = pub_bbox['x0']
+        bbox_msg.y0 = pub_bbox['y0']
 
-        self.dataset = LoadStreams(source, img_size=self.imgsz, stride=self.stride)
+        bbox_msg.x1 = pub_bbox['x1']
+        bbox_msg.y1 = pub_bbox['y1']
 
-        self.names = self.model.module.names if hasattr(self.model, 'module') else self.model.names
-        self.colors = [[np.random.randint(0, 255) for _ in range(3)] for _ in self.names]
+        # Publish BoundingBox message
+        self.bboxPublish.publish(bbox_msg)
 
-        self.model(torch.zeros(1, 3, self.imgsz, self.imgsz).to(self.device).type_as(next(self.model.parameters())))
 
-        self.path = None
-        self.img, self.im0s = None, None
-        self.vid_cap = None
+class MinimalSubscriber(Node):
+    def __init__(self):
+        super().__init__("minimal_subscriber")
+        self.GlobalPositionSuub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        # self.gimbalRemove = self.create_subscription(GimbalDegree, "gimDeg", self.gimAngDegcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.distance = self.create_subscription(Lidar, "lidar", self.lidarcb, 10)
+        self.hold = False
+        self.latitude = 0.0
+        self.longitude = 0.0
+        self.gps_altitude = 0.0
+        self.pitch = 0.0
+        self.roll = 0.0
+        self.yaw = 0.0
+        self.gimbalYaw = 0.0
+        self.gimbalPitch = 0.0
+        self.discm = 0.0
 
-        self.t1 = self.t2 = self.t3 = 0.0
-
-        self.max_conf = -1
-        self.max_xyxy = None
-        self.detectFlag = False
-
-        self.sequentialHits = 0
-        
-    def run(self):       
-        hitsCount = 0
-        for self.path, self.img, self.im0s, self.vid_cap in self.dataset:
-            self.img = torch.from_numpy(self.img).to(self.device)
-            self.img = self.img.half()
-            self.img /= 255.0
-            if self.img.ndimension() == 3:
-                self.img = self.img.unsqueeze(0)
-
-            self.t1 = time_synchronized()
-            with torch.no_grad():
-                pred = self.model(self.img, augment=self.augment)[0]
-            self.t2 = time_synchronized()
-
-            pred = non_max_suppression(pred, self.conf_thres, self.iou_thres, classes=self.classes, agnostic=self.agnostic_nms)
-            self.t3 = time_synchronized()
-            
-            for i, det in enumerate(pred):
-                max_conf = -1
-                max_xyxy = None
-                detectFlag = False
-                
-                p, s, im0, frame = self.path[i], '%g: ' % i, self.im0s[i].copy(), self.dataset.count
-
-                p = Path(p)
-
-                if len(det):
-                    detectFlag = True
-                    
-                    det[:, :4] = scale_coords(self.img.shape[2:], det[:, :4], im0.shape).round()
-
-                    for c in det[:, -1].unique():
-                        n = (det[:, -1] == c).sum()
-                        s += f"{n} {self.names[int(c)]}{'s' * (n > 1)}, "          
-                    
-                    for *xyxy, conf, cls in reversed(det):
-                        if conf > max_conf:
-                            max_conf = conf
-                            max_xyxy = xyxy
-                        
-                        if self.view_img:
-                            label = f'{self.names[int(cls)]} {conf:.2f}'
-                            plot_one_box(max_xyxy, im0, label=label, color=self.colors[int(cls)], line_thickness=1)
-                    
-                if self.view_img:
-                    cv2.imshow(str(p), im0)
-                    cv2.waitKey(1)
-                    
-            hitsCount = hitsCount + 1 if detectFlag else 0
-            if max_xyxy is not None:
-                max_xyxy = [coord.cpu() for coord in max_xyxy if isinstance(coord, torch.Tensor)]
-                
-            self.detectInfoCtx.put((detectFlag, hitsCount, max_xyxy))
-            self.print_detection_info(s)
-
-    def print_detection_info(self, s):
-        fps = 1E3 / (1E3 * (self.t2 - self.t1) + 1E3 * (self.t3 - self.t2))
-        print(f'{s}Done. ({self.t2 - self.t1:.3f}s) Inference, ({self.t3 - self.t2:.3f}s) NMS, ({fps:.1f})FPS', flush=True)
-
-class gimbalCtrl():
-    def __init__(self, xyxy:mp.Queue, pid_info:mp.Queue, angleQueue:mp.Queue):
-        self.xyxy = xyxy
-        self.pid_info = pid_info
-        self.angle = angleQueue
-        self.pid = self._pid()
-        self.yaw = self._motor(1, 0.0, 90)
-        self.pitch = self._motor(2, 0.0, 45)
-        
-    def run(self):
-        while True:
-            xyxy_stat = self.xyxy.full()
-            if xyxy_stat:
-                pidErr = self.pid.pid_run(self.xyxy.get())
-                m_flag1, m_flag2 = False, False
-                
-                if abs(pidErr[0]) != 0:
-                    self.yaw.incrementTurnVal(int(pidErr[0]*100))
-                else:
-                    m_flag1 = True
-
-                if abs(pidErr[1]) != 0:
-                    self.pitch.incrementTurnVal(int(pidErr[1]*100))
-                else:
-                    m_flag2 = True
-
-            pidInfoStat = self.pid_info.full()
-            if pidInfoStat:
-                self.pid_info.get()
-                if xyxy_stat.empty():
-                    self.pid_info.put("None")
-                else:
-                    self.pid_info.put(m_flag1 and m_flag2)
-            
-    def AngleLoop(self):
-        while True:
-            queueStat = self.angle.full()
-            if queueStat:
-                self.angle.get()
-            self.angle.put((self.yaw.getAngle(), self.pitch.getAngle()))
-            
-    @staticmethod
-    def _pid():
-        from pid.pid import PID_Ctrl
-        return PID_Ctrl()
+    def gimAngDegcb(self, msg):
+        self.gimbalYaw = msg.yaw
+        self.gimbalPitch = msg.pitch
     
-    @staticmethod
-    def _motor(ID, posInit, maxAngle):
-        from pid.motor import motorCtrl
-        return motorCtrl(ID, posInit, maxAngle)
+    def holdcb(self, msg):
+        self.hold = pub_img["hold_status"] = msg.hold_status
 
-def task(detectCtx:mp.Queue, xyxyQueue:mp.Queue):
-    global angleQueue, centerQueue  # Add this line
-    while True:
-        if detectCtx.full():
-            detectFlag, hitsCount, xyxy = detectCtx.get()
-            
-            if detectFlag and hitsCount > 3:
-                pub_img['first_detect'] = True
-                pub_bbox["x0"], pub_bbox['y0'], pub_bbox['x1'], pub_bbox["y1"] = xyxy
-                
-            manage_queue(xyxyQueue, xyxy)
-            
-            if angleQueue.full():
-                pub_img['motor_yaw'], pub_img['motor_pitch'] = angleQueue.get()
+    def GPcb(self, msg):
+        self.latitude = msg.latitude
+        self.longitude = msg.longitude
+        self.gps_altitude = msg.altitude
 
-            if centerQueue.full():
-                stuts = centerQueue.get()
-                if stuts != "None":
-                    pub_img['camera_center'] = stuts
+    def IMUcb(self, msg):
+        ned_euler_data = euler.quat2euler([msg.orientation.w,
+                                           msg.orientation.x,
+                                           msg.orientation.y,
+                                           msg.orientation.z])
+        self.pithch = radian_conv_degree(ned_euler_data[0])
+        self.roll = radian_conv_degree(ned_euler_data[1])
+        self.yaw = radian_conv_degree(ned_euler_data[2])
 
-def gimbal(pQueue, PID_infoQueue, angleQueue):
-    gCtrl = gimbalCtrl(pQueue, PID_infoQueue, angleQueue)
-    gCtrl.run()
+    def lidarcb(self, msg):
+        self.discm = msg.distance_cm
+    
+    def getImuPitch(self):
+        return self.pitch
 
-def main():
-    signal.signal(signal.SIGTERM, signal_handler)
+    def getImuYaw(self):
+        return self.yaw
+
+    def getImuRoll(self):
+        return self.roll
+
+    def getHold(self):
+        return pub_img["hold_status"]
+
+    def getLatitude(self):
+        return self.latitude
+
+    def getLongitude(self):
+        return self.longitude
+
+    def getAltitude(self):
+        return self.gps_altitude
+
+    def getDistance(self):
+        return self.discm
+
+
+def _spinThread(pub, sub):
+    # Create an executor and spin the ROS nodes in this process
+    executor = MultiThreadedExecutor()
+    executor.add_node(pub)
+    executor.add_node(sub)
 
     try:
-        global xyxyQueue, centerQueue, angleQueue
-        global mp_gimbal, mp_task
-        xyxyQueue = mp.Queue(maxsize=1)
-        centerQueue = mp.Queue(maxsize=1)
-        angleQueue = mp.Queue(maxsize=1)
-        mp_gimbal = mp.Process(target=gimbal, args=(xyxyQueue, centerQueue, angleQueue))
-        mp_gimbal.start()
+        executor.spin()
+    finally:
+        # Shutdown the nodes after spinning
+        pub.destroy_node()
+        sub.destroy_node()
+        rclpy.shutdown()
         
-        detectInfoCtx = mp.Queue(maxsize=1) # detectFlag, hitsCount, max_xyxy
-        mp_task = mp.Process(target=task, args=(detectInfoCtx, xyxyQueue))
-        mp_task.start()                 
-                
-        weights = 'yolov7.pt'
-        source = 'rtsp://127.0.0.2:8080/test'
-        img_size = 640
-        conf_thres = 0.25
-        iou_thres = 0.45
-        device = '0'
-        view_img = True
-        classes = None
-        agnostic_nms = False
-        augment = False
-        project = 'runs/detect'
-        name = 'exp'
-        exist_ok = False
-        no_trace = False
-        save_txt = False
-                
-        detector = ObjectDetector(detectInfoCtx, weights, source, img_size, conf_thres, iou_thres, device, view_img, classes, agnostic_nms, augment, project, name, exist_ok, no_trace, save_txt)
-        with torch.no_grad():
-            detector.run()
+
+def Update_pub_bbox(id=0, conf=0.0, x0=0, y0=0, x1=0, y1=0):
+    # 更新 pub_bbox
+    pub_bbox['class_id'] = int(id)  # 使用 id 參數
+    pub_bbox['confidence'] = float(conf)
+    pub_bbox['x0'] = int(x0)
+    pub_bbox['x1'] = int(x1)
+    pub_bbox['y0'] = int(y0)
+    pub_bbox['y1'] = int(y1)
+
+
+def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
+    m_flag1, m_flag2 = False, False  # Motor move status
+    pidErr = pid.pid_run(frameCenter_X, frameCenter_Y)
+    
+    # Motor rotation
+    if abs(pidErr[0]) != 0:
+        yaw.incrementTurnVal(int(pidErr[0]*100))
+    else:
+        m_flag1 = True
+
+    if abs(pidErr[1]) != 0:
+        pitch.incrementTurnVal(int(pidErr[1]*100))
+    else:
+        m_flag2 = True
+
+    return m_flag1 == m_flag2, pidErr[0], pidErr[1]
+
+
+def PID(xyxy):
+    if (xyxy is not None) and pub_img['detect']:
+        # Calculate the center point of the image frame
+        return motorPID_Ctrl(((xyxy[0] + xyxy[2]) / 2).item(), ((xyxy[1] + xyxy[3]) / 2).item())
+    return False, 0.0, 0.0
+
+
+def getGimbalAngles():
+    Y_ret, Y_angle= yaw.getAngle()
+    P_ret, P_angle= pitch.getAngle()
+    return Y_angle, P_angle
             
-    except KeyboardInterrupt:
-        print("KeyboardInterrupt detected, stopping processes...")
-        mp_gimbal.terminate()
-        mp_task.terminate()
+            
+def gimbalCtrl(xyxyCtx:queue.Queue): 
+    p = "/home/ubuntu/yolo/yolo_tracking_v2/gimbalAngle/angle.txt"
+    while True:
+        if xyxyCtx.full:
+            data = xyxyCtx.get()
+            pub_img["camera_center"], Y_pidErr, P_pidErr, = PID(data)
+            Y_angle, P_angle = getGimbalAngles()
+        else:
+            Y_pidErr = P_pidErr = 0
+        # pub_img['motor_yaw'], pub_img['motor_pitch'] = Y_angle, P_angle
+        # writeToFile(p, [Y_angle, P_angle, Y_pidErr, P_pidErr])
+        # print(f"Yaw Angle: {Y_angle}")
+        # print(f"Pitch Angle: {P_angle}")
+
+
+def bbox_filter(xyxy0, xyxy1):
+    c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
+    c1 = [((xyxy1[0] + xyxy1[2]) / 2), ((xyxy1[1] + xyxy1[3]) / 2)]
+    
+    dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c0[1])**2))
+    return dis<=256, dis
         
+
+def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False, no_trace=False):
+    source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
+    webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
+
+    # Initialize
+    set_logging()
+    device = select_device(device)
+    half = device.type != 'cpu'  # half precision only supported on CUDA
+
+    # Load model
+    model = attempt_load(weights, map_location=device)  # load FP32 model
+    stride = int(model.stride.max())  # model stride
+    imgsz = check_img_size(imgsz, s=stride)  # check img_size
+
+    if trace:
+        model = TracedModel(model, device, img_size)
+
+    if half:
+        model.half()  # to FP16
+
+    # Second-stage classifier
+    classify = False
+    if classify:
+        modelc = load_classifier(name='resnet101', n=2)  # initialize
+        modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device)['model']).to(device).eval()
+
+    # Set Dataloader
+    vid_path, vid_writer = None, None
+    
+    if view_img:
+        view_img = check_imshow()
+        view_img = True
+    
+    if webcam:
+        cudnn.benchmark = True  # set True to speed up constant image size inference
+        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
+    else:
+        dataset = LoadImages(source, img_size=imgsz, stride=stride)
+
+    # Get names and colors
+    names = model.module.names if hasattr(model, 'module') else model.names
+    colors = [[np.random.randint(0, 255) for _ in range(3)] for _ in names]
+
+    # Run inference
+    if device.type != 'cpu':
+        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+    old_img_w = old_img_h = imgsz
+    old_img_b = 1
+
+    previous_xyxy = None
+    detection_count = 0
+    t0 = time.time()
+    for path, img, im0s, vid_cap in dataset:
+        img = torch.from_numpy(img).to(device)
+        img = img.half() if half else img.float()  # uint8 to fp16/32
+        img /= 255.0  # 0 - 255 to 0.0 - 1.0
+        if img.ndimension() == 3:
+            img = img.unsqueeze(0)
+
+        # Warmup
+        if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
+            old_img_b, old_img_h, old_img_w = img.shape[0], img.shape[2], img.shape[3]
+            for i in range(3):
+                model(img, augment=augment)[0]
+
+        # Inference
+        t1 = time_synchronized()
+        with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
+            pred = model(img, augment=augment)[0]
+        t2 = time_synchronized()
+
+        # Apply NMS
+        pred = non_max_suppression(pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
+        t3 = time_synchronized()
+
+        # Apply Classifier
+        if classify:
+            pred = apply_classifier(pred, modelc, img, im0s)
+                          
+        # Process detections
+        for i, det in enumerate(pred):  # detections per image
+            # Status setting
+            n = 0 # Classifier
+            max_conf = -1  # Variable to store the maximum confidence value
+            max_xyxy = None  # Variable to store the xyxy with the maximum confidence
+            
+            if webcam:  # batch_size >= 1
+                p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
+            else:
+                p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
+
+            p = Path(p)  # to Path
+            
+            if len(det):
+                # Rescale boxes from img_size to im0 size
+                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
+
+                # Print results
+                for c in det[:, -1].unique():
+                    n = (det[:, -1] == c).sum()  # detections per class
+                    s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string                   
+
+                for *xyxy, conf, cls in reversed(det):
+                    if conf > max_conf:
+                        max_conf, max_xyxy = conf, xyxy
+                    
+                    if view_img:  # Add bbox to image
+                        label = f'{names[int(cls)]} {conf:.2f}'
+                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3) # im0 type: <class 'numpy.ndarray'>
+                        
+                # Calculate the distance between the current detection frame and the previous one
+                if previous_xyxy is not None:
+                    is_close, distance = bbox_filter(previous_xyxy, max_xyxy)
+                    detection_count = detection_count + 1 if is_close else 0
+                else:
+                    detection_count = 1
+                
+                if detection_count >= 4:
+                    pub_img['detect'] = True
+                    xyxyCtx.put(max_xyxy)
+                else: 
+                    pub_img['detect'] = False
+
+                previous_xyxy = max_xyxy
+            else:
+                pub_img['detect'] = False
+            
+            if max_xyxy is not None:
+                Update_pub_bbox(n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
+            else:
+                Update_pub_bbox()
+                
+            # Print time (inference + NMS)
+            print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
+
+            # Stream results
+            if view_img:
+                cv2.imshow(str(p), im0)
+                cv2.waitKey(1)  # 1 millisecond
+
+        
+def main(args=None):
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # ROS
+    rclpy.init(args=args)
+    global ROS_Pub, ROS_Sub
+    ROS_Pub = MinimalPublisher()
+    ROS_Sub = MinimalSubscriber()
+    ROS_spin = thrd.Thread(target=_spinThread, args=(ROS_Pub, ROS_Sub))
+    ROS_spin.start()
+    
+    # Gimbal
+    global xyxyCtx
+    global yaw, pitch
+    yaw = motorCtrl(1, "yaw", 0, 90.0)
+    pitch = motorCtrl(2, "pitch", 0, 360.0)
+    print(f"\033[34m Yaw encoder: {yaw.info.encoder},\n Pitch encoder:{pitch.info.encoder} \033[m")
+    xyxyCtx = queue.Queue()
+    gimbalThread = thrd.Thread(target=gimbalCtrl, args=(xyxyCtx,))
+    gimbalThread.start()
+    
+    # YOLO
+    # Settings directly specified here
+    weights = 'landpad.pt'                                              # Model weights file path
+    source ='rtsp://127.0.0.' + str(np.random.randint(0,99)) + ':8080/test'    # Data source path
+    # source = 'rtsp://127.0.0.1:8080/test'
+    # Data source path
+    img_size = 640                                                              # Image size for inference
+    conf_thres = 0.55                                                           # Object confidence threshold
+    iou_thres = 0.4                                                            # IOU threshold for NMS
+    device = '0'                                                                # Device to run the inference on, '' for auto-select
+    view_img = not True                                                         # Whether to display images during processing
+    # Specific classes to detect, None means detect all classes
+    classes = None
+    agnostic_nms = False                                                        # Apply class-agnostic NMS
+    augment = False                                                             # Augmented inference
+    no_trace = False                                                            # Don't trace the model for optimizations
+    # Call the detect function with all the specified settings
+    with torch.no_grad():
+        detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
+               classes, agnostic_nms, augment, no_trace)
+
+
 if __name__ == '__main__':
-    mp.set_start_method('spawn', force=True)
     main()

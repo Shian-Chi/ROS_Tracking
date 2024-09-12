@@ -7,6 +7,7 @@ class vector():
         self.y = y
         self.z = z
         
+        
 class verticalTargetPositioning():
     def __init__(self):
         self.zeroPos = vector()

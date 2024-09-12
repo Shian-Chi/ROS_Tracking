@@ -30,6 +30,7 @@ if(BUILD_TESTING)
     "msg/Img.msg"
     "msg/Bbox.msg"
     "msg/GimbalDegree.msg"
+    "msg/Lidar.msg"
     "srv/DroneMissionPath.srv"
     "srv/DroneStatus.srv"
 )

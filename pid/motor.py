@@ -2,7 +2,7 @@ from pid.motorInit import MotorSet
 from pid.parameter import Parameters, hexStr
 import numpy as np
 import struct
-from time import sleep as delay
+import time
 from typing import List
 
 para = Parameters()
@@ -16,22 +16,26 @@ HC = np.uint8(62)  # header Code
 
 
 class motorInformation:
-    def __init__(self, ID, maxAngles: float):
+    def __init__(self, ID, mode, maxAngles: float):
         self.ID = ID
-        self.encoder = float(0.0)
+        self.encoder = np.uint16(0)
+        self.encoderOffset = np.uint16(0)
+        self.encoderRaw = np.uint16(0)
         self.angle = float(0.0)
         self.speed = float(0.0)
         self.powers = float(0.0)
         self.current = float(0.0)
         self.temperature = 0
         self.maxAngles = maxAngles
+        self.mode = mode
+        self.bootEncoderVal = 0
 
     def update_encoder(self, encoder_value):
-        if 0 <= encoder_value <= 32767:  # 确保编码器值在有效范围内
+        if 0 <= encoder_value <= 32767:
             self.encoder = encoder_value
             self.angle = (encoder_value / 32767.0)
         else:
-            print("Invalid encoder value")
+            print(self.mode, ": Invalid encoder value")
 
     def update_speed(self, speed_value):
         self.speed = speed_value
@@ -39,152 +43,158 @@ class motorInformation:
     def update_power(self, power):
         self.powers = power
 
+    def update_encoderOffset(self, value):
+        self.encoderOffset = value
+
+    def update_encoderRaw(self, value):
+        self.encoderRaw = value
+
     def update_voltage_current(self, current):
         self.current = current
-        
+
     def getEncoder(self):
         return self.encoder
-    
+
     def getAngle(self):
-        if self.encoder == 32767:
-            self.angle = 0.0
-        else:
-            self.angle = self.encoder / para.uintDegreeEncoder
+        self.angle = self.encoder / para.uintDegreeEncoder
         return self.angle
-    
+
     def getSpeed(self):
         return self.speed
 
+    def bootEncoder(self, val):
+        self.bootEncoderVal = val
 
 
 class motorCtrl:
-    def __init__(self, motorID, postionInit: float, maxAngles:float):
+    def __init__(self, motorID, mode, postionInit: float, maxAngles: float):
         self.ID = np.uint8(motorID)
-        self.info = motorInformation(motorID, maxAngles)
-        self.bootPosition(postionInit)
+
+        if mode is None:
+            if self.ID == 1:
+                self.mode = "yaw"
+            if self.ID == 2:
+                self.mode = "pitch"
+            if self.ID == 3:
+                self.mode = "row"
+        else:
+            self.mode = mode
+
+        self.info = motorInformation(motorID, self.mode, maxAngles)
+        # self.bootPosition(postionInit)
+        # self.bootZero()
 
     def stop(self):
         cmd = 129  # 0x81
         data = struct.pack("5B", HC, cmd, self.ID, 0, HC + cmd + self.ID + 0)
-        motor.send(data, 5)
-        return rxBuffer
+        info = motor.echo(data, 5)
+        return info == data
 
     def singleTurnVal(self, dir, value: int):
-        global rxBuffer
         cmd = np.uint8(165)  # 0xA5
         check_sum = Checksum(value + dir)
         value = np.uint16(value)
-        buffer = struct.pack("6BH2B", HC, cmd, self.ID, 4, HC + cmd + self.ID + 4, dir, value, 0, check_sum)
-        motor.send(buffer, 10)
-        return buffer
+        buffer = struct.pack("6BH2B", HC, cmd, self.ID, 4,
+                             HC + cmd + self.ID + 4, dir, value, 0, check_sum)
+        info = motor.echo(buffer, 10, 13)
+        return cmd, info
 
     def incrementTurnVal(self, value: int):
         cmd = np.uint8(167)  # 0xA7
         check_sum = Checksum(value)
-        buffer = struct.pack("<5BiB", HC, cmd, self.ID, 4, HC + cmd + self.ID + 4, value, check_sum)
-        motor.send(buffer, 10)
-        return buffer
+        buffer = struct.pack("<5BiB", HC, cmd, self.ID, 4,
+                             HC + cmd + self.ID + 4, value, check_sum)
+        info = motor.echo(buffer, 10, 13)
+        return cmd, info
 
-    def motorZero(self, dir):
-        data = struct.pack("10B", 62, 165, self.ID, 4, 62 + 165 + self.ID + 4, dir, 0, 0, 0, dir)
-        motor.send(data, 10)
-        delay(0.1)
+    def readEncoder(self):
+        cmd = 0x90
+        buffer = struct.pack("<5B", HC, cmd, self.ID,
+                             0, HC + cmd + self.ID + 0)
+        info = motor.echo(buffer, 5, 12)
+        if info is not None:
+            info = struct.unpack("12B", info)
+            # header, command, id, size, cmdSum, encoderLow, encoderHigh, encoderRawLow, encoderRawHigh, encoderOffsetLow, encoderOffsetHigh, dataSum = info
+            # print(info,"\n")
+            
+            cs_s = Checksum(sum(info[:4])) == info[4]           
+            ds_s = Checksum(info[5:-1]) == info[-1]
+            
+            if info[0] == 62 and cs_s and ds_s:
+                encoder = info[6] << 8 | info[5]
+                encoderRaw = info[8] << 8 | info[7]
+                encoderOffset = info[10] << 8 | info[9]
+                self.info.update_encoder(encoder)
+                self.info.update_encoderRaw(encoderRaw)
+                self.info.update_encoderOffset(encoderOffset)
+                return True
+        return False
     
-    def readMotorStatus2(self, data=None, cmd=0x9C):
-        header = 0x3E  # Frame header
-        command = cmd  # Command to read motor status 2
-        data_length = 0  # Data length, assumed to be 0 because the command does not require additional data
-        checksum = Checksum(header + command + self.ID) # Calculate checksum
-        
-        motor.ser.flushOutput()
-        if command == 0x9C:
-            # Sending the command frame
-            command_packet = struct.pack("5B", header, command, self.ID, data_length, checksum)
-            motor.send(command_packet, 5)
-        
-        # Receiving the response
-        if data is None:
-            response = motor.recv(13, 5)  # Update the byte length to match your data format
-        else:
-            response = data
-            
-        rLen = len(response)
-        response = search_command(response, command)
-        print(f"Rx size:{rLen}, response: {hexStr(response)}")
-        if response is None:
-            return
-        hc, c, id, dlen, hcs, tmp, _, _, speed_low, speed_high, encoder_low, encoder_high, dcs = response
+    def getEncoder(self):
+        if self.readEncoder():
+            return True, self.info.getEncoder()
+        return False, self.info.getEncoder()
 
-        # Processing torque current and output power
-        if hc == HC and hcs == Checksum(sum([hc, c, id, dlen])):
-            # Processing motor speed
-            speed = (speed_high << 8) | speed_low
-            if speed > 32767:
-                speed -= 65536  # Convert to signed integer
-
-            # Processing encoder position
-            encoder = (encoder_high << 8) | encoder_low
-
-            # Updating motor information
-            self.info.update_encoder(encoder)
-            self.info.update_speed(speed)
-            self.info.temperature = tmp  # Assuming temperature is stored in the voltage property
-
-            print(f"Motor Status Updated: Temperature {tmp}, Speed {speed}, Encoder {encoder}")
-        else:
-            print("motor recv data error")
-            
     def getAngle(self):
-        self.readMotorStatus2()
-        return self.info.getAngle()
+        ret, angle = self.getEncoder()
+        return ret, angle/para.uintDegreeEncoder
     
-    def bootPosition(self, pos):
-        for i in range(6):  # 最多嘗試6次以達到指定的精度
-            print("bootPosition count:", i)
-            current_angle = self.getAngle()
-            print(current_angle)
-
-            if self.ID == 2:
-                # if current_angle > 90.0:
-                #     diff = (current_angle + 180) % 360 - 180
-                # else:
-                    diff = pos - current_angle
-            elif self.ID == 1:
-                if current_angle > 90.0:
-                    diff = ((current_angle + 180) % 360 - 180)
+    def bootZero(self):
+        print(f"Boot Initialized")
+        for _ in range(2):
+            if self.ID == 1:
+                ret, encoder = self.getEncoder()
+                if ret:
+                    angle = encoder / para.uintDegreeEncoder
+                    print(f'BootInit Angle: {angle}')
+                    if angle < 0.0:
+                        self.singleTurnVal(0, 0)
+                    else:
+                        self.singleTurnVal(1, 0)
                 else:
-                    diff = (pos - current_angle)
-            move_val = int(diff * 100)
-            if abs(move_val) > 0:  # 只有當有實際移動時才發送命令
-                self.incrementTurnVal(move_val)
-            else:
-                break  # 如果沒有需要移動的距離，則提前結束循環
-            delay(0.1)
-            
+                    self.bootZero()
+            elif self.ID == 2:
+                self.singleTurnVal(1, 0)
+            if self.getEncoder() == 0:
+                break
+            time.sleep(1)
+        print(f"{self.mode} Boot Initialized finished")    
+        
 # Calculate Checksum of received data
 def calc_value_Checksum(value):
     value = value & 0xFFFFFFFF
     return value & 0xFF
 
 
-# Calculate Checksum of send data
 def Checksum(value):
-    val = np.int32(value)
-    arr = np.array([val >> 24 & 0xFF, val >> 16 & 0xFF, val >> 8 & 0xFF, val & 0xFF], dtype="uint8")
-    total = np.sum(arr)
-    check_sum = np.uint8(total & np.uint8(0xFF))
-    return np.uint8(check_sum)
+    if isinstance(value, (tuple, list)):
+        val = np.array(value, dtype=np.uint8)
+    else:
+        val = np.array([value >> 24 & 0xFF, value >> 16 & 0xFF, value >> 8 & 0xFF, value & 0xFF], dtype=np.uint8)
+    
+    total = np.sum(val, dtype=np.uint32)
+    check_sum = np.uint8(total & 0xFF)
+    return check_sum
+
 
 
 def motorSend(data, size):
     return motor.send(data, size)
 
 
-def search_command(response, command):
-    p = [i for i, value in enumerate(response) if value == HC]  # Find all the locations where Head Code appears
+def search_command(response, command, length):
+    if response is None:
+        return None
+
+    # Find all the locations where Head Code appears
+    p = [i for i, value in enumerate(response) if value == HC]
     for i in p:
         if i + 1 < len(response) and response[i + 1] == command:
             if i + 13 <= len(response):
-                rep = response[i:i + 13]  # Starting from i, take 13 bytes
+                rep = response[i:i + length]  # Starting from i, take 13 bytes
                 return rep
-    return None  
+    return None
+
+
+def normalized_angle(angle):
+    return (angle + 180) % 360 - 180

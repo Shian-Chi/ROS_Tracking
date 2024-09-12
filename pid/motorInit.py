@@ -13,7 +13,7 @@ class MotorSet:
         self.gpio_state = False
         self.baudrate = 1000000  # 1 Mbps
         self.init_serial()
-
+        
     def init_serial(self):
         try:
             self.ser = serial.Serial(
@@ -24,16 +24,17 @@ class MotorSet:
                 bytesize=serial.EIGHTBITS,
                 timeout=0.1
             )
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
         except serial.SerialException as e:
             print(f"Failed to initialize serial port: {e}")
             self.error_handler()
 
-    def error_handler(self):
-        self.error_count += 1
-        if self.error_count >= 3:
-            self.ser.close()
-            print("Attempting to reset serial port...")
-            self.init_serial()
+    def handle_io_error(self):
+        print("Handling I/O error...")
+        self.ser.close()
+        time.sleep(1)  # 等待一段時間，防止設備忙
+        self.init_serial()  # 重新初始化串口
 
     def gpio_high(self, pin):
         GPIO.output(pin, GPIO.HIGH)
@@ -51,7 +52,7 @@ class MotorSet:
             
             self.gpio_high(11)
             t1 = time.time()
-            wLen = self.ser.write(buf)            
+            wLen = self.ser.write(buf[:size])            
             actual_send_time = time.time() - t1
             
             if actual_send_time < send_time:
@@ -60,31 +61,41 @@ class MotorSet:
                 
             return wLen
         except serial.SerialException as e:
-            self.error_handler()
+            self.handle_io_error()
             print(f"Error in send method: {e}")
             return 0
+        except OSError as e:
+            print(f"OS error during send: {e}")
+            self.handle_io_error()  # 呼叫重新初始化函數
+            return 0
+        
+    def recv(self, size):
+        l = self.ser.in_waiting
+        if l > 0:
+            self.gpio_low(11)  # 設置 RTS 為低電位
+            return self.ser.read(size)  # 讀取指定大小的資料
+        else:
+            return None  # 如果沒有資料可讀，返回空或者其他適當的值
 
-    def recv(self, size=12, reRead=3):
-        try:
-            read = b''
-            recound = 0
-            while len(read) < size:
-                received_data = self.ser.read_all() # Recv SerialPort data
-                read += received_data
-                              
-                recound += 1
-                print("serial recound:",recound)
-                if recound == reRead: # Recv failed
-                    break
-                
-            return read
-        except serial.SerialException as e:
-            print(f"Error in recv method: {e}")
-            return False
-
-    def echo(self, s_buf, size=0, r_size=12, max_attempts=1):
-        sent = self.send(s_buf, size)
-        if sent == 0:
-            print("Send failed.")
-            return b''
-        return self.recv(r_size, max_attempts)
+    def reset_buffer(self):
+        self.ser.reset_input_buffer()  # Clear input buffer before retrying
+        self.ser.reset_output_buffer() # Clear output buffer before retrying
+    
+    def echo(self, sBuff, sSize:int, rSize=0, redo=1):
+        for _ in range(redo):
+            self.send(sBuff, sSize)  # Send data
+            start_time = time.time()
+            
+            while True:
+                if self.ser.in_waiting >= rSize:
+                    data = self.recv(rSize)  # Receive specified size of data
+                    if data is not None and len(data) >= rSize:
+                        self.reset_buffer()
+                        return data  # Return received data
+                    
+                if time.time() - start_time >= 0.1:
+                    break  # Timeout exceeded, retry if redo > 1
+            
+            self.reset_buffer()
+            
+        return None  # Return None if all retries fail

@@ -4,9 +4,9 @@ para = Parameters()
 
 class PID_Ctrl():
     def __init__(self):
-        self.kp = 0.0095
+        self.kp = 0.009
         self.ki = 0.000036
-        self.kd = 0.000000016
+        self.kd = 0.000000014
         self.setpoint = [para.HD_Width/2, para.HD_Height/2]
         self.error = [0, 0]
         self.last_error = [0, 0]

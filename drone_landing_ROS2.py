@@ -66,9 +66,7 @@ class DroneSubscribeNode(Node):
         #prevent unused variable warning
         self.AltitudeSub
 
-        self.first_detect = False
-        self.second_detect = False
-        self.third_detect = False
+        self.detect = False
         self.camera_center = False
         self.motor_pitch = 0.0
         self.motor_yaw = 0.0
@@ -133,9 +131,7 @@ class DroneSubscribeNode(Node):
         return self.local_z
 
     def IMGcb(self,Img):
-        self.first_detect = Img.first_detect
-        self.second_detect = Img.second_detect
-        self.third_detect = Img.third_detect
+        self.detect = Img.detect
         self.camera_center = Img.camera_center
         self.motor_pitch = Img.motor_pitch
         self.motor_yaw = Img.motor_yaw
@@ -178,7 +174,7 @@ class DronePublishNode(Node):
     def setCameraDetection_callback(self):
         #print(self.vision_status)
         self.vision_status.hold_status = self.hold_status
-        self.setCameraDetection_pub.publish(self.vision_status)
+        #self.setCameraDetection_pub.publish(self.vision_status)
 
     # def recvGC(self):
     #     global droneState
@@ -250,6 +246,14 @@ class DroneClientNode(Node):
         self.future = self._setMode.call_async(setModeCmdReq)
         rclpy.spin_until_future_complete(self, self.future, timeout_sec=1.0)
         print("RTL------")
+        return self.future.result()
+
+    def requestLoiter(self):
+        setModeCmdReq = SetMode.Request()
+        setModeCmdReq.custom_mode = "AUTO.LOITER"
+        self.future = self._setMode.call_async(setModeCmdReq)
+        rclpy.spin_until_future_complete(self, self.future, timeout_sec=1.0)
+        print("LOITER------")
         return self.future.result()
     
     def requestDectectHold(self):
@@ -337,12 +341,12 @@ def fly_to_global(pub : DronePublishNode, sub : DroneSubscribeNode, cli : DroneC
     if longitude == 0.0:
         longitude = sub.longitude
 
-    print('296--------',sub.first_detect)
-    while (((abs(sub.latitude - latitude)*110936.32 > 3) or (abs(sub.longitude - longitude)*101775.45 > 3)) and (sub.first_detect == False)):
+    print('296--------',sub.detect)
+    while (((abs(sub.latitude - latitude)*110936.32 > 3) or (abs(sub.longitude - longitude)*101775.45 > 3)) and (sub.detect == False)):
         time.sleep(0.1)
     
     if (latitude != 0.0) and (longitude != 0.0):
-        while (((abs(sub.latitude - latitude)*110936.2 > 1.5) or (abs(sub.longitude - longitude)*101775.45 > 1.5)) and (sub.first_detect == False)):  #or (abs(sub.altitude - altitude) > 1.5)
+        while (((abs(sub.latitude - latitude)*110936.2 > 1.5) or (abs(sub.longitude - longitude)*101775.45 > 1.5)) and (sub.detect == False)):  #or (abs(sub.altitude - altitude) > 1.5)
             print("lat distance:", abs(sub.latitude - latitude)*110936.2, "lng distance:", abs(sub.longitude - longitude)*101775.45, "alt distance:", abs(sub.altitude - altitude))
             time.sleep(0.1)
     
@@ -359,7 +363,7 @@ def fly_to_global(pub : DronePublishNode, sub : DroneSubscribeNode, cli : DroneC
 
             print('target yaw:', target_yaw)
             pub.alwaysSendPosGlobal.yaw = degree_conv_radian(sub.yaw - delta_yaw)
-            while ((abs(sub.yaw - target_yaw) > 1) and (sub.first_detect == False)):
+            while ((abs(sub.yaw - target_yaw) > 1) and (sub.detect == False)):
                 print("<90 target yaw rotation")
                 time.sleep(0.1)
             print(sub.yaw)
@@ -390,7 +394,7 @@ def fly_to_global(pub : DronePublishNode, sub : DroneSubscribeNode, cli : DroneC
                 print('....')
 
                 pub.alwaysSendPosGlobal.yaw = degree_conv_radian(sub.yaw - delta90)
-                while ((abs(sub.yaw - target_yaw) > 0.1) and (sub.first_detect != True)):
+                while ((abs(sub.yaw - target_yaw) > 0.1) and (sub.detect != True)):
                     time.sleep(0.1)
                 print(sub.yaw)
             
@@ -398,10 +402,10 @@ def fly_to_global(pub : DronePublishNode, sub : DroneSubscribeNode, cli : DroneC
             if final_delta_yaw != 0:
                 print("final_delta_yaw:", final_delta_yaw)
                 pub.alwaysSendPosGlobal.yaw = degree_conv_radian(sub.yaw - final_delta_yaw)
-                while ((sub.yaw > sub.yaw + 0.1 and sub.yaw < sub.yaw - 0.1) and (sub.first_detect != True)):
+                while ((sub.yaw > sub.yaw + 0.1 and sub.yaw < sub.yaw - 0.1) and (sub.detect != True)):
                     time.sleep(0.1)
                     
-    if sub.first_detect == True: #辨識到目標
+    if sub.detect == True: #辨識到目標
         print('---------------------------------------sub.yolo_detect_status == Tru')
         print('111111111111111111111111111111111111111111111111111111111111111111111')
         temp_lat = sub.latitude
@@ -445,6 +449,7 @@ def fly_to_global(pub : DronePublishNode, sub : DroneSubscribeNode, cli : DroneC
     
     time.sleep(1)
     print('reach the destination')
+    return False
 
 def fly_to_global_without_detect(pub : DronePublishNode, sub : DroneSubscribeNode, latitude, longitude, altitude, delta_yaw):
     print('fly to latitude', latitude," longitude:", longitude, " delta_yaw:", delta_yaw)
@@ -471,6 +476,61 @@ def fly_to_global_without_detect(pub : DronePublishNode, sub : DroneSubscribeNod
         while (((abs(sub.latitude - latitude)*110936.2 > 1.5) or (abs(sub.longitude - longitude)*101775.45 > 1.5))):  #or (abs(sub.altitude - altitude) > 1.5)
             print("+++++++lat distance:", abs(sub.latitude - latitude)*110936.2, "lng distance:", abs(sub.longitude - longitude)*101775.45, "alt distance:", abs(sub.altitude - altitude))
             time.sleep(0.1)
+
+    if ((delta_yaw != 0)) :
+        print("delta_yaw", delta_yaw)
+
+        if (delta_yaw <= 90.0 and delta_yaw > 0) or (delta_yaw >= -90.0 and delta_yaw <= 0):    #旋轉角度小於等於90度的作法
+            target_yaw = sub.yaw - delta_yaw #z軸朝上 為了正角度為順時針轉取負號
+            print(sub.yaw , delta_yaw, target_yaw)
+            if target_yaw > 180 :
+                target_yaw = target_yaw - 360
+            if target_yaw < -180:
+                target_yaw = target_yaw + 360
+
+            print('target yaw:', target_yaw)
+            pub.alwaysSendPosGlobal.yaw = degree_conv_radian(sub.yaw - delta_yaw)
+            while ((abs(sub.yaw - target_yaw) > 1) and (sub.detect == False)):
+                print("<90 target yaw rotation")
+                time.sleep(0.1)
+            print(sub.yaw)
+
+        if delta_yaw > 90.0 or delta_yaw < -90.0: #旋轉角度大於90度的作法 
+            origin_yaw = sub.yaw
+            if delta_yaw > 0:
+                delta90 = 90
+            if delta_yaw < 0:
+                delta90 = -90
+            rotation90_num = int(delta_yaw/90)
+            pos_neg_rotation90_num = rotation90_num
+            if rotation90_num < 0:#例如轉-360度取整數後仍為負的會進不了迴圈
+                rotation90_num = -rotation90_num
+            print("rotation90_num", rotation90_num)
+
+            for i in range(rotation90_num):
+                if i == 0:
+                    target_yaw = sub.yaw - delta90 #z軸朝上 為了正角度為順時針轉取負號
+                if i != 0:
+                    target_yaw = target_yaw - delta90 #z軸朝上 為了正角度為順時針轉取負號
+
+                print("ENU_YAW:", sub.yaw , "DELTA_YAW:", delta_yaw, "TARGET:", target_yaw)
+                if target_yaw > 180 :
+                    target_yaw = target_yaw - 360
+                if target_yaw < -180:
+                    target_yaw = target_yaw + 360
+                print('....')
+
+                pub.alwaysSendPosGlobal.yaw = degree_conv_radian(sub.yaw - delta90)
+                while ((abs(sub.yaw - target_yaw) > 0.1) and (sub.detect != True)):
+                    time.sleep(0.1)
+                print(sub.yaw)
+            
+            final_delta_yaw = delta_yaw - (90 * pos_neg_rotation90_num)
+            if final_delta_yaw != 0:
+                print("final_delta_yaw:", final_delta_yaw)
+                pub.alwaysSendPosGlobal.yaw = degree_conv_radian(sub.yaw - final_delta_yaw)
+                while ((sub.yaw > sub.yaw + 0.1 and sub.yaw < sub.yaw - 0.1) and (sub.detect != True)):
+                    time.sleep(0.1)
     
     time.sleep(1)
     print('reach the destination')
@@ -576,6 +636,41 @@ def calculate_bearing(lat1, lon1, lat2, lon2):
 
     return bearing_deg*(-1)
 
+def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, origin_heading):
+
+    current_lat = sub.latitude #y
+    current_lon = sub.longitude #x
+
+    safty_distance = 10.0 #設置安全距離 以免因為PITCH一直沒辦法收斂導致無人機一直向前飛
+
+    theta = sub.heading-origin_heading
+
+    delta_y = -0.1 * math.sin(math.radians(theta))
+    delta_x = 0.1 * math.cos(math.radians(theta))
+
+    delta_lat = delta_y*(1/101775.45)
+    delta_lon = delta_x*(1/110936.32)
+
+    while (90.0 - sub.motor_pitch >= 5.0):
+        print("moving x: %fm, y: %fm", delta_x, delta_y)
+        target_lat= sub.latitude + delta_lat
+        target_lon = sub.longitude + delta_lon
+
+        safty_distance = safty_distance - abs((delta_y**2)+(delta_x**2))
+        '''if safty_distance <= 0.0:
+            print("Over safety distance")
+            return '''
+
+        pub.alwaysSendPosGlobal.latitude = target_lat
+        pub.alwaysSendPosGlobal.longitude = target_lon
+
+        while ((abs(sub.latitude - target_lat)*110936.32 > 3) or (abs(sub.longitude - target_lon)*101775.45 > 3)):
+            time.sleep(0.1)
+        print("pitch error: %f degrees",  90.0 - sub.motor_pitch)
+    
+    print("drone forward finished")
+
+
 def signal_handler(signal, frame):
     print("\nprogram exiting gracefully")
     rclpy.shutdown()
@@ -594,7 +689,7 @@ if __name__ == '__main__':
     #global posLocal
 
     freq = 50 #publish發佈頻率
-    takeoffAltitude = 10.0 #無人機起飛高度
+    takeoffAltitude = 5.0 #無人機起飛高度
 
     rclpy.init()
 
@@ -613,9 +708,11 @@ if __name__ == '__main__':
         time.sleep(0.1)
 
     print("_droneSpinThread start")
-
+    droneCli.requestLoiter()
+    
     while True:
         if droneState.droneState == 1: #groundControlCommand.DRONE_TAKEOFF.value:
+            print("1212121212121212121212121212")
             droneState.droneState = groundControlCommand.DRONE_IDLE.value
             
             origin_latitude = droneSub.latitude
@@ -623,11 +720,32 @@ if __name__ == '__main__':
             takeoff_global(dronePub, droneSub, droneCli, takeoffAltitude)
             temp_status = False
             
+            origin_latitude = droneSub.latitude
+            origin_longitude = droneSub.longitude
+            origin_heading = droneSub.heading
+            
             while True:
                 if droneState.droneState == 2:
                     print("mission start---------")
+
+
+                    #開始旋轉直到辨識到目標(旋轉一圈沒辨識到目標辨識失敗)
+                    result = fly_to_global(dronePub, droneSub, droneCli,origin_latitude, origin_longitude, takeoffAltitude, 360.0, origin_latitude, origin_longitude)
+
+                    #如果成功辨識到目標，機頭開使與雲台鏡頭方向對齊
+                    if result == True:
+                        temp_yaw = droneSub.motor_yaw
+                        fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, 10.0, temp_yaw)
                     
-                    print('len',len(drone_point))
+                        #向前飛，使得雲台的Pitch垂直於目標
+                        drone_moving_along_the_x(dronePub, droneSub, origin_heading)
+
+                        #降落
+                        droneCli.requestLand()
+
+
+                    
+                    '''print('len',len(drone_point))
 
                     point_len = len(drone_point)
                     lon1 = math.radians(drone_point[0][3]) #起始經度
@@ -640,10 +758,10 @@ if __name__ == '__main__':
                     bearing = calculate_bearing(lat1, lon1, lat2, lon2)
                     print(bearing)
                     fly_to_global(dronePub, droneSub, droneCli,origin_latitude, origin_longitude, takeoffAltitude, bearing, origin_latitude, origin_longitude)
-                    print("轉向前進方位角完成")
+                    print("轉向前進方位角完成")'''
 
-                    #當按下搜尋開始
-                    for row in range(len(drone_point)):
+                    #搜尋開始
+                    '''for row in range(len(drone_point)):
                         if row == 0:
                             print("first point")
                             fly_to_global(dronePub, droneSub, droneCli, drone_point[row][2], drone_point[row][3], 10.0, 0.0, origin_latitude, origin_longitude)
@@ -740,6 +858,6 @@ if __name__ == '__main__':
                         fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, 10.0, 0.0)
                         droneCli.requestLand()
                         droneState.droneState = 0
-                    temp_status = False
+                    temp_status = False'''
                     
                 time.sleep(0.1)
