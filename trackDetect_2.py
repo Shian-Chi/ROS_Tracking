@@ -447,15 +447,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 def main(args=None):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-
-    # ROS
-    rclpy.init(args=args)
-    global ROS_Pub, ROS_Sub
-    ROS_Pub = MinimalPublisher()
-    ROS_Sub = MinimalSubscriber()
-    ROS_spin = thrd.Thread(target=_spinThread, args=(ROS_Pub, ROS_Sub))
-    ROS_spin.start()
-    
+ 
     # Gimbal
     global xyxyCtx
     global yaw, pitch
@@ -465,6 +457,14 @@ def main(args=None):
     xyxyCtx = queue.Queue()
     gimbalThread = thrd.Thread(target=gimbalCtrl, args=(xyxyCtx,))
     gimbalThread.start()
+    
+    # ROS
+    rclpy.init(args=args)
+    global ROS_Pub, ROS_Sub
+    ROS_Pub = MinimalPublisher()
+    ROS_Sub = MinimalSubscriber()
+    ROS_spin = thrd.Thread(target=_spinThread, args=(ROS_Pub, ROS_Sub))
+    ROS_spin.start()
     
     # YOLO
     # Settings directly specified here
