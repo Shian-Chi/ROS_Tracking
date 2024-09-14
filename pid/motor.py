@@ -82,7 +82,7 @@ class motorCtrl:
 
         self.info = motorInformation(motorID, self.mode, maxAngles)
         # self.bootPosition(postionInit)
-        # self.bootZero()
+        self.bootZero()
 
     def stop(self):
         cmd = 129  # 0x81
@@ -132,8 +132,8 @@ class motorCtrl:
     
     def getEncoder(self):
         if self.readEncoder():
-            return True, self.info.getEncoder()
-        return False, self.info.getEncoder()
+            return True, int(self.info.getEncoder())
+        return False, int(self.info.getEncoder())
 
     def getAngle(self):
         ret, angle = self.getEncoder()
