@@ -8,10 +8,6 @@ from typing import List
 para = Parameters()
 motor = MotorSet()
 
-X_Center = 1920 / 2
-Y_Center = 1080 / 2
-
-rxBuffer = np.zeros(12, dtype="uint8")
 HC = np.uint8(62)  # header Code
 
 

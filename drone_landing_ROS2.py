@@ -652,7 +652,7 @@ def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, o
     delta_lon = delta_x*(1/110936.32)
 
     while (90.0 - sub.motor_pitch >= 5.0):
-        print("moving x: %fm, y: %fm", delta_x, delta_y)
+        print(f"moving x: {delta_x}m, y: {delta_y}m")
         target_lat= sub.latitude + delta_lat
         target_lon = sub.longitude + delta_lon
 
@@ -666,7 +666,7 @@ def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, o
 
         while ((abs(sub.latitude - target_lat)*110936.32 > 3) or (abs(sub.longitude - target_lon)*101775.45 > 3)):
             time.sleep(0.1)
-        print("pitch error: %f degrees",  90.0 - sub.motor_pitch)
+        print(f"pitch error: {90.0 - sub.motor_pitch} degrees")
     
     print("drone forward finished")
 

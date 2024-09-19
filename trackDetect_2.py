@@ -16,6 +16,7 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized,
 from pid.pid import PID_Ctrl
 from pid.parameter import Parameters
 from pid.motor import motorCtrl
+from pid.motorInit import MotorSet
 
 import threading as thrd
 import sys, signal
@@ -46,20 +47,21 @@ pub_img = {"detect": False,
 pub_bbox = {
     'class_id': 0,
     'confidence': 0.0,
-    'x0': 0,
-    'x1': 0,
+    'x0': 1280,
+    'x1': 720,
     'y0': 0,
     'y1': 0
 }
 
 
-motor_pub ={
+pub_motor ={
     'pitchAngle': 0.0,
     'yawAngle': 0.0,
     'pitchPluse' : 0,
     'yawPluse' : 0
 }
 
+imagePublish = pub_img
 
 pid = PID_Ctrl()
 bridge = CvBridge()
@@ -67,9 +69,10 @@ para = Parameters()
 
 def signal_handler(sig, frame):
     global yaw, pitch, ROS_Pub, ROS_Sub
-    print('Signal detected, shutting down gracefully...')
+    print('Signal detected, shutting down gracefully')
     yaw.stop()
     pitch.stop()
+    MotorSet.close()
     ROS_Pub.destroy_node()
     ROS_Sub.destroy_node()
     rclpy.shutdown()
@@ -148,10 +151,10 @@ class MinimalPublisher(Node):
         time.sleep(0.01)
         _, pitchData = pitch.getEncoder()
         
-        self.motorInfo.pitch_pluse = motor_pub['pitchPluse'] = pitchData
-        self.motorInfo.yaw_pluse = motor_pub['yawPluse'] = yawData  
-        self.motorInfo.pitch_angle = motor_pub['pitchAngle']  = yawData / para.uintDegreeEncoder
-        self.motorInfo.yaw_angle = motor_pub['yawAngle'] = pitchData / para.uintDegreeEncoder
+        self.motorInfo.pitch_pluse = pub_motor['pitchPluse'] = pitchData
+        self.motorInfo.yaw_pluse =   pub_motor['yawPluse'] = yawData  
+        self.motorInfo.pitch_angle = pub_motor['pitchAngle']  = yawData / para.uintDegreeEncoder
+        self.motorInfo.yaw_angle =   pub_motor['yawAngle'] = pitchData / para.uintDegreeEncoder
         
         self.motorInfoPublish.publish(self.motorInfo)
     
@@ -240,8 +243,8 @@ def _spinThread(pub, sub):
         
 
 def Update_pub_bbox(id=0, conf=0.0, x0=0, y0=0, x1=0, y1=0):
-    # 更新 pub_bbox
-    pub_bbox['class_id'] = int(id)  # 使用 id 參數
+    # updata pub_bbox
+    pub_bbox['class_id'] = int(id)
     pub_bbox['confidence'] = float(conf)
     pub_bbox['x0'] = int(x0)
     pub_bbox['x1'] = int(x1)
@@ -264,36 +267,46 @@ def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
     else:
         m_flag2 = True
 
-    return m_flag1 == m_flag2, pidErr[0], pidErr[1]
+    return m_flag1 and m_flag2, pidErr[0], pidErr[1]
 
 
 def PID(xyxy):
-    if (xyxy is not None) and pub_img['detect']:
+    global imagePublish
+    if (xyxy is not None) and imagePublish['detect']:
         # Calculate the center point of the image frame
         return motorPID_Ctrl(((xyxy[0] + xyxy[2]) / 2).item(), ((xyxy[1] + xyxy[3]) / 2).item())
     return False, 0.0, 0.0
 
 
-def getGimbalAngles():
-    Y_ret, Y_angle= yaw.getAngle()
-    P_ret, P_angle= pitch.getAngle()
-    return Y_angle, P_angle
+def getGimbalEncoders():
+    Y_ret, Y_Encoder= yaw.getEncoder()
+    P_ret, P_Encoder= pitch.getEncoder()
+    return Y_Encoder, P_Encoder
             
             
-def gimbalCtrl(xyxyCtx:queue.Queue): 
+def gimbalCtrl(xyxyCtx): 
+    global imagePublish
     p = "/home/ubuntu/yolo/yolo_tracking_v2/gimbalAngle/angle.txt"
+    camera_center = False
     while True:
         if xyxyCtx.full:
-            data = xyxyCtx.get()
-            pub_img["camera_center"], Y_pidErr, P_pidErr, = PID(data)
-            Y_angle, P_angle = getGimbalAngles()
-        else:
-            Y_pidErr = P_pidErr = 0
-        # pub_img['motor_yaw'], pub_img['motor_pitch'] = Y_angle, P_angle
-        # writeToFile(p, [Y_angle, P_angle, Y_pidErr, P_pidErr])
-        # print(f"Yaw Angle: {Y_angle}")
-        # print(f"Pitch Angle: {P_angle}")
-
+            camera_center, Y_pidErr, P_pidErr, = PID(xyxyCtx.get())
+            
+            print(f"camera_center: {camera_center},\nYawError: {Y_pidErr}, PitchError: {P_pidErr}")
+            if camera_center is True:
+                y, p = getGimbalEncoders()
+                imagePublish['camera_center'] = camera_center
+                
+                pub_motor['yawPluse'], pub_motor['pitchAngle'] = y, p
+                pub_motor['yawAngle'], pub_motor['pitchAngle'] = y / para.uintDegreeEncoder, p / para.uintDegreeEncoder
+                
+                imagePublish['motor_pitch'] = pub_motor['pitchAngle']
+                imagePublish['motor_yaw'] = pub_motor['yawAngle']
+                
+                print(f"yaw angle: {pub_motor['yawAngle']}, pitch angle: {pub_motor['pitchAngle']}")
+            else:
+                imagePublish['camera_center'] = False
+                
 
 def bbox_filter(xyxy0, xyxy1):
     c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
@@ -383,6 +396,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             pred = apply_classifier(pred, modelc, img, im0s)
                           
         # Process detections
+        global imagePublish, pub_bbox
         for i, det in enumerate(pred):  # detections per image
             # Status setting
             n = 0 # Classifier
@@ -421,19 +435,19 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     detection_count = 1
                 
                 if detection_count >= 4:
-                    pub_img['detect'] = True
+                    imagePublish['detect'] = True
                     xyxyCtx.put(max_xyxy)
                 else: 
-                    pub_img['detect'] = False
+                    imagePublish['detect'] = False
 
                 previous_xyxy = max_xyxy
             else:
-                pub_img['detect'] = False
+                imagePublish['detect'] = False
             
             if max_xyxy is not None:
                 Update_pub_bbox(n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
             else:
-                Update_pub_bbox()
+                Update_pub_bbox(0, 0.0, 1280, 720)
                 
             # Print time (inference + NMS)
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
@@ -447,7 +461,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 def main(args=None):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
- 
+  
     # Gimbal
     global xyxyCtx
     global yaw, pitch
@@ -455,8 +469,8 @@ def main(args=None):
     pitch = motorCtrl(2, "pitch", 0, 360.0)
     print(f"\033[34m Yaw encoder: {yaw.info.encoder},\n Pitch encoder:{pitch.info.encoder} \033[m")
     xyxyCtx = queue.Queue()
-    gimbalThread = thrd.Thread(target=gimbalCtrl, args=(xyxyCtx,))
-    gimbalThread.start()
+    gimbalCtrlThread = thrd.Thread(target=gimbalCtrl, args=(xyxyCtx,))
+    gimbalCtrlThread.start()
     
     # ROS
     rclpy.init(args=args)
@@ -473,8 +487,8 @@ def main(args=None):
     # source = 'rtsp://127.0.0.1:8080/test'
     # Data source path
     img_size = 640                                                              # Image size for inference
-    conf_thres = 0.55                                                           # Object confidence threshold
-    iou_thres = 0.4                                                            # IOU threshold for NMS
+    conf_thres = 0.53                                                           # Object confidence threshold
+    iou_thres = 0.3                                                            # IOU threshold for NMS
     device = '0'                                                                # Device to run the inference on, '' for auto-select
     view_img = not True                                                         # Whether to display images during processing
     # Specific classes to detect, None means detect all classes

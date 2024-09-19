@@ -24,6 +24,13 @@ class MotorSet:
                 bytesize=serial.EIGHTBITS,
                 timeout=0.1
             )
+            
+            if self.ser.is_open:
+                print(f'Successfully opened serial port')
+            else:
+                self.ser.open()
+                print(f"{self.ser.in_waiting}, Successfully opened serial port")
+                
             self.ser.reset_input_buffer()
             self.ser.reset_output_buffer()
         except serial.SerialException as e:
@@ -32,9 +39,11 @@ class MotorSet:
 
     def handle_io_error(self):
         print("Handling I/O error...")
-        self.ser.close()
+        if self.ser.is_open:
+            self.ser.close()
         time.sleep(1)  # 等待一段時間，防止設備忙
         self.init_serial()  # 重新初始化串口
+        self.reset_buffer()  # 清理緩衝區
 
     def gpio_high(self, pin):
         GPIO.output(pin, GPIO.HIGH)
@@ -44,9 +53,14 @@ class MotorSet:
         GPIO.output(pin, GPIO.LOW)
         self.gpio_state = False
 
+    def close(self):
+        self.ser.close()
+        GPIO.cleanup()
+    
     def send(self, buf=b'\x01', size=0):
         if size == 0:
             size = len(buf)
+        
         try:
             send_time = (size * 8) / self.baudrate
             
@@ -70,12 +84,21 @@ class MotorSet:
             return 0
         
     def recv(self, size):
-        l = self.ser.in_waiting
-        if l > 0:
-            self.gpio_low(11)  # 設置 RTS 為低電位
-            return self.ser.read(size)  # 讀取指定大小的資料
-        else:
-            return None  # 如果沒有資料可讀，返回空或者其他適當的值
+        try:
+            l = self.ser.in_waiting
+            if l > 0:
+                self.gpio_low(11)  # 設置 RTS 為低電位
+                return self.ser.read(size)  # 讀取指定大小的資料
+            else:
+                print(f"No data available to read. in_waiting: {l}")
+                return None
+        except OSError:
+            # ignore or log...  Let the loop retry.
+            pass    
+        except serial.SerialException as e:
+            print(f"Error during recv: {e}")
+            self.handle_io_error()
+            return None
 
     def reset_buffer(self):
         self.ser.reset_input_buffer()  # Clear input buffer before retrying
