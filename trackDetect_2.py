@@ -61,7 +61,6 @@ pub_motor ={
     'yawPluse' : 0
 }
 
-imagePublish = pub_img
 
 pid = PID_Ctrl()
 bridge = CvBridge()
@@ -271,8 +270,8 @@ def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
 
 
 def PID(xyxy):
-    global imagePublish
-    if (xyxy is not None) and imagePublish['detect']:
+    global pub_img
+    if (xyxy is not None) and pub_img['detect']:
         # Calculate the center point of the image frame
         return motorPID_Ctrl(((xyxy[0] + xyxy[2]) / 2).item(), ((xyxy[1] + xyxy[3]) / 2).item())
     return False, 0.0, 0.0
@@ -285,7 +284,7 @@ def getGimbalEncoders():
             
             
 def gimbalCtrl(xyxyCtx): 
-    global imagePublish
+    global pub_img
     p = "/home/ubuntu/yolo/yolo_tracking_v2/gimbalAngle/angle.txt"
     camera_center = False
     while True:
@@ -295,17 +294,17 @@ def gimbalCtrl(xyxyCtx):
             print(f"camera_center: {camera_center},\nYawError: {Y_pidErr}, PitchError: {P_pidErr}")
             if camera_center is True:
                 y, p = getGimbalEncoders()
-                imagePublish['camera_center'] = camera_center
+                pub_img['camera_center'] = camera_center
                 
                 pub_motor['yawPluse'], pub_motor['pitchAngle'] = y, p
                 pub_motor['yawAngle'], pub_motor['pitchAngle'] = y / para.uintDegreeEncoder, p / para.uintDegreeEncoder
                 
-                imagePublish['motor_pitch'] = pub_motor['pitchAngle']
-                imagePublish['motor_yaw'] = pub_motor['yawAngle']
+                pub_img['motor_pitch'] = pub_motor['pitchAngle']
+                pub_img['motor_yaw'] = pub_motor['yawAngle']
                 
                 print(f"yaw angle: {pub_motor['yawAngle']}, pitch angle: {pub_motor['pitchAngle']}")
             else:
-                imagePublish['camera_center'] = False
+                pub_img['camera_center'] = False
                 
 
 def bbox_filter(xyxy0, xyxy1):
@@ -396,7 +395,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             pred = apply_classifier(pred, modelc, img, im0s)
                           
         # Process detections
-        global imagePublish, pub_bbox
+        global pub_img, pub_bbox
         for i, det in enumerate(pred):  # detections per image
             # Status setting
             n = 0 # Classifier
@@ -435,14 +434,14 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     detection_count = 1
                 
                 if detection_count >= 4:
-                    imagePublish['detect'] = True
+                    pub_img['detect'] = True
                     xyxyCtx.put(max_xyxy)
                 else: 
-                    imagePublish['detect'] = False
+                    pub_img['detect'] = False
 
                 previous_xyxy = max_xyxy
             else:
-                imagePublish['detect'] = False
+                pub_img['detect'] = False
             
             if max_xyxy is not None:
                 Update_pub_bbox(n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
