@@ -484,7 +484,7 @@ def main(args=None):
     
     # YOLO
     # Settings directly specified here
-    weights = 'landpad20240923.pt'                                              # Model weights file path
+    weights = 'landpad20240522.pt'                                              # Model weights file path
     source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/test'    # Data source path
     # Data source path
     img_size = 640                                                              # Image size for inference
