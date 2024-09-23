@@ -45,6 +45,7 @@ pub_img = {"detect": False,
 
 
 pub_bbox = {
+    'detect' : False,
     'class_id': 0,
     'confidence': 0.0,
     'x0': 1280,
@@ -241,8 +242,9 @@ def _spinThread(pub, sub):
         rclpy.shutdown()
         
 
-def Update_pub_bbox(id=0, conf=0.0, x0=0, y0=0, x1=0, y1=0):
+def Update_pub_bbox(detect=False, id=0, conf=0.0, x0=0, y0=0, x1=0, y1=0):
     # updata pub_bbox
+    pub_bbox['detect'] = detect
     pub_bbox['class_id'] = int(id)
     pub_bbox['confidence'] = float(conf)
     pub_bbox['x0'] = int(x0)
@@ -428,25 +430,26 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                         
                 # Calculate the distance between the current detection frame and the previous one
                 if previous_xyxy is not None:
-                    is_close, distance = bbox_filter(previous_xyxy, max_xyxy)
-                    detection_count = detection_count + 1 if is_close else 0
+                    # Check whether the previous and next frames are continuous
+                    ret, distance = bbox_filter(previous_xyxy, max_xyxy) 
+                    detection_count = detection_count + 1 if ret else 0
                 else:
                     detection_count = 1
                 
-                if detection_count >= 4:
-                    pub_img['detect'] = True
+                detect_status = detection_count >= 4
+                pub_img['detect'] = pub_bbox['detect'] = detect_status
+                
+                if pub_img['detect']:
                     xyxyCtx.put(max_xyxy)
-                else: 
-                    pub_img['detect'] = False
-
                 previous_xyxy = max_xyxy
+                
             else:
-                pub_img['detect'] = False
+                pub_img['detect'] = pub_bbox['detect'] = False
             
             if max_xyxy is not None:
-                Update_pub_bbox(n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
+                Update_pub_bbox(detect_status, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
             else:
-                Update_pub_bbox(0, 0.0, 1280, 720)
+                Update_pub_bbox(False, 0, 0.0, 1280, 720)
                 
             # Print time (inference + NMS)
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
@@ -483,7 +486,6 @@ def main(args=None):
     # Settings directly specified here
     weights = 'landpad20240522.pt'                                              # Model weights file path
     source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/test'    # Data source path
-    # source = 'rtsp://127.0.0.1:8080/test'
     # Data source path
     img_size = 640                                                              # Image size for inference
     conf_thres = 0.53                                                           # Object confidence threshold
