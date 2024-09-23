@@ -134,12 +134,11 @@ class MinimalPublisher(Node):
 
     def bbox_callback(self):
         bbox_msg = Bbox()
+        bbox_msg.detect = pub_bbox['detect']
         bbox_msg.class_id = pub_bbox['class_id']
         bbox_msg.confidence = pub_bbox['confidence']
-
         bbox_msg.x0 = pub_bbox['x0']
         bbox_msg.y0 = pub_bbox['y0']
-
         bbox_msg.x1 = pub_bbox['x1']
         bbox_msg.y1 = pub_bbox['y1']
 

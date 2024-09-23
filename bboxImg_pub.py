@@ -66,12 +66,13 @@ class MinimalPublisher(Node):
 
             # 獲取當前 bbox 座標，並檢查座標是否有效
             try:
-                point = ROS_Sub.getBbox()
+                ret, id, conf, point = ROS_Sub.getBbox()
                 print(f"bbox: {point}")
                 print(f"Current bbox_coords: {point}")  # 調試輸出座標
                
                 # 在影像上畫出矩形框
-                cv2.rectangle(image, (point[0],point[1]), (point[2],point[3]), (0, 255, 0), 5)  # 綠色框
+                if ret:
+                    cv2.rectangle(image, (point[0],point[1]), (point[2],point[3]), (0, 255, 0), 5)  # 綠色框
 
             except Exception as e:
                 self.get_logger().error(f"Error drawing bbox: {e}")
@@ -105,7 +106,7 @@ class MinimalSubscriber(Node):
         # self.get_logger().info(f"Received bbox with class_id: {msg.class_id}, confidence: {msg.confidence}")
 
     def getBbox(self):
-        return self.bboxTop + self.bboxBottom
+        return self.detectSTAT, self.ID, self.conf, self.bboxTop + self.bboxBottom
         
 def main(args=None):
     # 信號處理器設置，捕獲 SIGINT 和 SIGTERM
