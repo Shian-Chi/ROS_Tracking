@@ -9,10 +9,10 @@ import threading as thrd
 import queue
 import sys
 import signal
-from tutorial_interfaces.msg import Bbox  
+from tutorial_interfaces.msg import Bbox
 
 # 使用隨機生成的 rtspAddress
-rtspAddress = 'rtsp://192.168.0.153:8080/test'
+rtspAddress = 'rtsp://10.242.36.97:8080/test'
 
 # 設置全局影像框和 bbox 參數
 frame = queue.Queue(10)
@@ -82,6 +82,7 @@ class MinimalPublisher(Node):
             self.publisher_.publish(self.ros_pub_image)
             # self.get_logger().info('Publishing image with bbox')
             if self.ros_pub_image is not None:
+                # image = cv2.GaussianBlur(image, (5, 5), 0)
                 cv2.imshow("bbox_images", image)
                 cv2.waitKey(1)  # 1 millisecond
 
