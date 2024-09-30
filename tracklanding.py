@@ -28,7 +28,6 @@ from rclpy.qos import ReliabilityPolicy, QoSProfile
 from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import NavSatFix, Imu
 from transforms3d import euler
-from cv_bridge import CvBridge
 from tutorial_interfaces.msg import Img, Bbox, GimbalDegree, Lidar, MotorInfo
 # from mavros_msgs.msg import Img, Bbox, GimbalDegree, Lidar, MotorInfo
 
@@ -64,7 +63,6 @@ pub_motor ={
 
 
 pid = PID_Ctrl()
-bridge = CvBridge()
 para = Parameters()
 
 def signal_handler(sig, frame):
@@ -105,7 +103,10 @@ def writeToFile(filename, data):
         print(f"Failed to write to file: {e}")
 
 
+<<<<<<< HEAD
 rclpy.init(args=None)   
+=======
+>>>>>>> 01eac753a7bdb43081a9615d69711b4194c1761d
 class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
@@ -168,6 +169,7 @@ class MinimalSubscriber(Node):
     def getDistance(self):
         return self.discm
 ROS_Sub = MinimalSubscriber()
+<<<<<<< HEAD
 
 class MinimalPublisher(Node):
     def __init__(self):
@@ -224,7 +226,64 @@ class MinimalPublisher(Node):
         
         self.motorInfoPublish.publish(self.motorInfo)
 ROS_Pub = MinimalPublisher()
+=======
+>>>>>>> 01eac753a7bdb43081a9615d69711b4194c1761d
 
+
+class MinimalPublisher(Node):
+    def __init__(self):
+        super().__init__("minimal_publisher")
+        self.sub = ROS_Sub
+        # Img publish
+        self.imgPublish = self.create_publisher(Img, "img", 10)
+        img_timer_period = 1/35
+        self.img_timer = self.create_timer(img_timer_period, self.img_callback)
+
+        # Bbox publish
+        self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
+        bbox_timer_period = 1/10
+        self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
+       
+        # MotorInfo publish
+        self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
+        motor_timer_period = 1/10
+        self.motor_timer = self.create_timer(motor_timer_period, self.motor_callback)
+        
+        self.img = Img()
+        self.bbox = Bbox()
+        self.motorInfo = MotorInfo()
+        
+    def img_callback(self):
+        self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
+            self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()        
+        self.imgPublish.publish(self.img)
+
+    def bbox_callback(self):
+        bbox_msg = Bbox()
+        bbox_msg.class_id = pub_bbox['class_id']
+        bbox_msg.confidence = pub_bbox['confidence']
+
+        bbox_msg.x0 = pub_bbox['x0']
+        bbox_msg.y0 = pub_bbox['y0']
+
+        bbox_msg.x1 = pub_bbox['x1']
+        bbox_msg.y1 = pub_bbox['y1']
+
+        # Publish BoundingBox message
+        self.bboxPublish.publish(bbox_msg)
+
+    def motor_callback(self):
+        _, yawData = yaw.getEncoder()
+        time.sleep(0.01)
+        _, pitchData = pitch.getEncoder()
+        
+        self.motorInfo.pitch_pluse = pub_motor['pitchPluse'] = pitchData
+        self.motorInfo.yaw_pluse =   pub_motor['yawPluse'] = yawData  
+        self.motorInfo.pitch_angle = pub_motor['pitchAngle']  = (yawData / para.uintDegreeEncoder) + self.sub.getImuRoll()
+        self.motorInfo.yaw_angle =   pub_motor['yawAngle'] = pitchData / para.uintDegreeEncoder
+        
+        self.motorInfoPublish.publish(self.motorInfo)
+ROS_Pub = MinimalPublisher()
 
 def _spinThread(pub, sub):
     # Create an executor and spin the ROS nodes in this process
