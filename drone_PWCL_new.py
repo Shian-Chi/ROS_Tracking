@@ -24,12 +24,12 @@ import drone_4g_v2 as drone_TCPIP
 # from mavros_msgs.srv import DroneStatus, DroneMissionPath
 # from mavros_msgs.msg import Img,Bbox,GimbalDegree
 
-from tutorial_interfaces.srv import DroneStatus, DroneMissionPath
-from tutorial_interfaces.msg import Img, Bbox, GimbalDegree
+from mavros_msgs.srv import DroneStatus, DroneMissionPath
+from mavros_msgs.msg import Img, Bbox, GimbalDegree
 
 drone_point = [] #無人機不固定飛行點
-ipaddr = '172.22.75.0' # Grounds station vpn address
-# ipaddr = '192.168.0.153' ## Grounds station Wi-Fi address
+# ipaddr = '172.22.75.0' # Grounds station vpn address
+ipaddr = '192.168.0.136' ## Grounds station Wi-Fi address
 port = 80
 drone_id = bytes('\x02', 'utf-8')
 
