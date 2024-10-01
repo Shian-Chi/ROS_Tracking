@@ -50,42 +50,6 @@ def signal_handler(sig, frame):
     rclpy.shutdown()
     sys.exit(0)
 
-class MinimalPublisher(Node):
-    def __init__(self):
-        super().__init__("bboxImg_publisher")
-        self.ros_pub_image = None
-        self.publisher_ = self.create_publisher(Image, "image", 10)  
-        t = 1/60
-        self.timer = self.create_timer(t, self.bboxImg_callback)  # 每0.1秒發布一次圖像
-        self.bridge = CvBridge()  # OpenCV圖像與ROS圖像之間的轉換
-        
-    def bboxImg_callback(self):
-        if frame.full():
-            # 從 queue 中取出影像
-            image = frame.get()
-
-            # 獲取當前 bbox 座標，並檢查座標是否有效
-            try:
-                point = ROS_Sub.getBbox()
-                print(f"bbox: {point}")
-                print(f"Current bbox_coords: {point}")  # 調試輸出座標
-               
-                # 在影像上畫出矩形框
-                cv2.rectangle(image, (point[0],point[1]), (point[2],point[3]), (0, 255, 0), 5)  # 綠色框
-
-            except Exception as e:
-                self.get_logger().error(f"Error drawing bbox: {e}")
-                return
-
-            # 将OpenCV图像转换为ROS图像消息
-            self.ros_pub_image = self.bridge.cv2_to_imgmsg(image, "bgr8")
-            self.publisher_.publish(self.ros_pub_image)
-            # self.get_logger().info('Publishing image with bbox')
-            if self.ros_pub_image is not None:
-                # image = cv2.GaussianBlur(image, (5, 5), 0)
-                cv2.imshow("bbox_images", image)
-                cv2.waitKey(1)  # 1 millisecond
-
 
 class MinimalSubscriber(Node):
     def __init__(self):
@@ -107,7 +71,46 @@ class MinimalSubscriber(Node):
 
     def getBbox(self):
         return self.bboxTop + self.bboxBottom
+    
+
+class MinimalPublisher(Node):
+    def __init__(self):
+        super().__init__("bboxImg_publisher")
+        self.ros_pub_image = None
+        self.publisher_ = self.create_publisher(Image, "image", 10)  
+        t = 1/60
+        self.timer = self.create_timer(t, self.bboxImg_callback)  # 每0.1秒發布一次圖像
+        self.bridge = CvBridge()  # OpenCV圖像與ROS圖像之間的轉換
         
+    def bboxImg_callback(self):
+        if frame.full():
+            # 從 queue 中取出影像
+            image = frame.get()
+
+            # 獲取當前 bbox 座標，並檢查座標是否有效
+            try:
+                point = ROS_Sub.getBbox()
+                print(f"bbox: {point}")
+                print(f"Current bbox_coords: {point}")  # 調試輸出座標
+               
+                # 在影像上畫出矩形框
+                if ROS_Sub.detectSTAT:
+                    cv2.rectangle(image, (point[0],point[1]), (point[2],point[3]), (0, 255, 0), 5)  # 綠色框
+
+            except Exception as e:
+                self.get_logger().error(f"Error drawing bbox: {e}")
+                return
+
+            # 将OpenCV图像转换为ROS图像消息
+            self.ros_pub_image = self.bridge.cv2_to_imgmsg(image, "bgr8")
+            self.publisher_.publish(self.ros_pub_image)
+            # self.get_logger().info('Publishing image with bbox')
+            if self.ros_pub_image is not None:
+                # image = cv2.GaussianBlur(image, (5, 5), 0)
+                cv2.imshow("bbox_images", image)
+                cv2.waitKey(1)  # 1 millisecond
+
+
 def main(args=None):
     # 信號處理器設置，捕獲 SIGINT 和 SIGTERM
     signal.signal(signal.SIGINT, signal_handler)
