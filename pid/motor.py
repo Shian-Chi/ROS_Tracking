@@ -153,7 +153,7 @@ class motorCtrl:
                 self.singleTurnVal(1, 0)
             if self.getEncoder() == 0:
                 break
-            time.sleep(1)
+            time.sleep(0.1)
         print(f"{self.mode} Boot Initialized finished")    
         
 # Calculate Checksum of received data
