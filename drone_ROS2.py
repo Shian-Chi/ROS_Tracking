@@ -19,9 +19,10 @@ import numpy as np
 import cmath
 import math
 import struct
-from tutorial_interfaces.srv import DroneStatus, DroneMissionPath
-from tutorial_interfaces.msg import Img
-
+# from tutorial_interfaces.srv import DroneStatus, DroneMissionPath
+# from tutorial_interfaces.msg import Img
+from mavros_msgs.srv import DroneStatus, DroneMissionPath
+from mavros_msgs.msg import Img
 drone_point = []
 temp_detect_status = False
 
