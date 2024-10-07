@@ -52,10 +52,6 @@ class MotorSet:
     def gpio_low(self, pin):
         GPIO.output(pin, GPIO.LOW)
         self.gpio_state = False
-
-    def close(self):
-        self.ser.close()
-        GPIO.cleanup()
     
     def send(self, buf=b'\x01', size=0):
         if size == 0:
