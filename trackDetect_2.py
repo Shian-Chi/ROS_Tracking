@@ -72,7 +72,6 @@ def signal_handler(sig, frame):
     print('Signal detected, shutting down gracefully')
     yaw.stop()
     pitch.stop()
-    MotorSet.close()
     ROS_Pub.destroy_node()
     ROS_Sub.destroy_node()
     rclpy.shutdown()
@@ -439,7 +438,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 detect_status = detection_count >= 4
                 pub_img['detect'] = pub_bbox['detect'] = detect_status
                 
-                if pub_img['detect']:
+                if detect_status:
                     xyxyCtx.put(max_xyxy)
                 previous_xyxy = max_xyxy
                 
@@ -484,11 +483,11 @@ def main(args=None):
     
     # YOLO
     # Settings directly specified here
-    weights = 'landpad20240923.pt'                                              # Model weights file path
+    weights = 'landpad20240522.pt'                                              # Model weights file path
     source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/test'    # Data source path
     # Data source path
     img_size = 640                                                              # Image size for inference
-    conf_thres = 0.53                                                           # Object confidence threshold
+    conf_thres = 0.45                                                           # Object confidence threshold
     iou_thres = 0.3                                                            # IOU threshold for NMS
     device = '0'                                                                # Device to run the inference on, '' for auto-select
     view_img = not True                                                         # Whether to display images during processing
