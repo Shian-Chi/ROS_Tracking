@@ -28,9 +28,9 @@ from tutorial_interfaces.srv import DroneStatus, DroneMissionPath
 from tutorial_interfaces.msg import Img, Bbox, GimbalDegree
 
 drone_point = [] #無人機不固定飛行點
-ipaddr = '10.147.20.230' # Grounds station vpn address
+# ipaddr = '10.147.20.230' # Grounds station vpn address
 # ipaddr = '172.22.75.0' # Grounds station vpn address
-# ipaddr = '192.168.0.136' # Grounds station Wi-Fi address
+ipaddr = '192.168.0.75' # Grounds station Wi-Fi address
 port = 80
 drone_id = bytes('\x02', 'utf-8')
 
