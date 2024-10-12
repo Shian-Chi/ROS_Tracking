@@ -143,13 +143,13 @@ class motorCtrl:
                 if ret:
                     angle = encoder / para.uintDegreeEncoder
                     print(f'BootInit Angle: {angle}')
-                    if angle < 0.0:
-                        self.singleTurnVal(0, 0)
-                    else:
-                        self.singleTurnVal(1, 0)
+                    self.singleTurnVal(0, 0)
+                    self.singleTurnVal(1, 0)
                 else:
                     self.bootZero()
             elif self.ID == 2:
+                self.singleTurnVal(1, 0)
+                time.sleep(0.1)
                 self.singleTurnVal(1, 0)
             if self.getEncoder() == 0:
                 break
