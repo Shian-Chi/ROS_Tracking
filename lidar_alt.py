@@ -20,8 +20,8 @@ except (ntplib.NTPException, OSError) as e:
     dt_taipei = datetime.now(taipei_timezone)
 
 def writeData(path:str, data):
-    with open(path, 'a', encoding='utf-8') as file:
-        file.write(data)
+    with open(path, 'a') as file:
+        file.write(data+'\n')
 
 
 # Format time (format: year, month, day, hour, minute, second)
@@ -35,7 +35,8 @@ class LidarPublisher(Node):
         self.bus = smbus2.SMBus(8)  # I2C Bus number may vary
         self.lidar_address = 0x62
         self.path = f"/home/ubuntu/yolo/yolo_tracking_v2/distances_{formatted_time}.txt"
-
+        self.count = 0
+        
     def publish_distance(self):
         distance = self.read_lidar_distance()
         if distance is not None:
@@ -58,7 +59,9 @@ class LidarPublisher(Node):
             low_byte = self.bus.read_byte_data(self.lidar_address, 0x10)
             high_byte = self.bus.read_byte_data(self.lidar_address, 0x11)
             distance = (high_byte << 8) + low_byte
-            writeData(self.path, distance)
+            wData = f"{self.count}: {distance}cm"
+            writeData(self.path, wData)
+            self.count += 1
             return distance
         except Exception as e:
             self.get_logger().error(f"Error reading from LIDAR: {e}")
