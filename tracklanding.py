@@ -70,7 +70,6 @@ def signal_handler(sig, frame):
     print('Signal detected, shutting down gracefully')
     yaw.stop()
     pitch.stop()
-    MotorSet.close()
     ROS_Pub.destroy_node()
     ROS_Sub.destroy_node()
     rclpy.shutdown()
@@ -165,7 +164,7 @@ class MinimalSubscriber(Node):
 
     def getDistance(self):
         return self.discm
-ROS_Sub = MinimalSubscriber()
+
 
 class MinimalPublisher(Node):
     def __init__(self):
@@ -173,26 +172,28 @@ class MinimalPublisher(Node):
         self.sub = ROS_Sub
         # Img publish
         self.imgPublish = self.create_publisher(Img, "img", 10)
-        img_timer_period = 1/35
+        img_timer_period = 1/20
         self.img_timer = self.create_timer(img_timer_period, self.img_callback)
-
+        self.img = Img()
+        
         # Bbox publish
         self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
         bbox_timer_period = 1/10
         self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
-       
+        self.bbox = Bbox()
+        
         # MotorInfo publish
+        """
         self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
         motor_timer_period = 1/10
         self.motor_timer = self.create_timer(motor_timer_period, self.motor_callback)
-        
-        self.img = Img()
-        self.bbox = Bbox()
         self.motorInfo = MotorInfo()
+        """
         
     def img_callback(self):
         self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
-            self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()        
+            self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values() 
+        self.img.motor_pitch += self.sub.getImuRoll()
         self.imgPublish.publish(self.img)
 
     def bbox_callback(self):
@@ -207,7 +208,7 @@ class MinimalPublisher(Node):
 
         # Publish BoundingBox message
         self.bboxPublish.publish(bbox_msg)
-
+    """
     def motor_callback(self):
         _, yawData = yaw.getEncoder()
         time.sleep(0.01)
@@ -219,7 +220,7 @@ class MinimalPublisher(Node):
         self.motorInfo.yaw_angle =   pub_motor['yawAngle'] = pitchData / para.uintDegreeEncoder
         
         self.motorInfoPublish.publish(self.motorInfo)
-ROS_Pub = MinimalPublisher()
+    """
 
 def _spinThread(pub, sub):
     # Create an executor and spin the ROS nodes in this process
@@ -362,7 +363,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
     previous_xyxy = None
     detection_count = 0
-    t0 = time.time()
+        
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -449,10 +450,11 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
 
             # Stream results
+            """
             if view_img:
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
-
+            """
         
 def main():
     signal.signal(signal.SIGINT, signal_handler)
@@ -469,7 +471,9 @@ def main():
     gimbalCtrlThread.start()
     
     # ROS
-    global ROS_Pub, ROS_Sub
+    global ROS_Pub, ROS_Sub, ROS_spin
+    ROS_Sub = MinimalSubscriber()
+    ROS_Pub = MinimalPublisher()
     ROS_spin = thrd.Thread(target=_spinThread, args=(ROS_Pub, ROS_Sub))
     ROS_spin.start()
     
