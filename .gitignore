@@ -6,6 +6,8 @@
 # Boot service
 nohup.out
 /root
+.swp
+nohup.out
 
 # Repo-specific GitIgnore ----------------------------------------------------------------------------------------------
 *.jpg
