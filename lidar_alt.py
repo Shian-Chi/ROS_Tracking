@@ -3,6 +3,29 @@ from rclpy.node import Node
 from sensor_msgs.msg import Range
 import smbus2
 import time
+from datetime import datetime, timezone, timedelta
+import ntplib
+
+
+# Create an NTP client and try to get the time from the NTP server
+try:
+    client = ntplib.NTPClient()
+    taipei_timezone = timezone(timedelta(hours=8))
+    response = client.request('pool.ntp.org')
+    dt_utc = datetime.fromtimestamp(response.tx_time, timezone.utc)
+    dt_taipei = dt_utc.astimezone(taipei_timezone)
+except (ntplib.NTPException, OSError) as e:
+    print("Unable to obtain network time, use system time instead")
+    taipei_timezone = timezone(timedelta(hours=8))
+    dt_taipei = datetime.now(taipei_timezone)
+
+def writeData(path:str, data):
+    with open(path, 'a', encoding='utf-8') as file:
+        file.write(data)
+
+
+# Format time (format: year, month, day, hour, minute, second)
+formatted_time = dt_taipei.strftime('%Y_%m%d_%H%M%S')
 
 class LidarPublisher(Node):
     def __init__(self):
@@ -11,6 +34,7 @@ class LidarPublisher(Node):
         self.timer = self.create_timer(0.1, self.publish_distance)  # 10Hz
         self.bus = smbus2.SMBus(8)  # I2C Bus number may vary
         self.lidar_address = 0x62
+        self.path = f"/home/ubuntu/yolo/yolo_tracking_v2/distances_{formatted_time}.txt"
 
     def publish_distance(self):
         distance = self.read_lidar_distance()
@@ -34,6 +58,7 @@ class LidarPublisher(Node):
             low_byte = self.bus.read_byte_data(self.lidar_address, 0x10)
             high_byte = self.bus.read_byte_data(self.lidar_address, 0x11)
             distance = (high_byte << 8) + low_byte
+            writeData(self.path, distance)
             return distance
         except Exception as e:
             self.get_logger().error(f"Error reading from LIDAR: {e}")
