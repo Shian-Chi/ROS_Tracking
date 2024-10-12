@@ -16,7 +16,6 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized,
 from pid.pid import PID_Ctrl
 from pid.parameter import Parameters
 from pid.motor import motorCtrl
-from pid.motorInit import MotorSet
 
 import threading as thrd
 import sys, signal
@@ -29,7 +28,7 @@ from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import NavSatFix, Imu
 from transforms3d import euler
 from cv_bridge import CvBridge
-from tutorial_interfaces.msg import Img, Bbox, GimbalDegree, Lidar, MotorInfo
+from tutorial_interfaces.msg import Img, Bbox, Lidar, MotorInfo
 # from mavros_msgs.msg import Altitude, Lidar, Bbox, Img
 
 
@@ -82,20 +81,6 @@ def radian_conv_degree(Radian):
     return ((Radian / math.pi) * 180)
 
 
-def manage_queue(q, item):
-    """
-    Attempts to add an item to the queue. If the queue is full, it removes an item before adding the new one.
-    """
-    try:
-        q.put_nowait(item)  # Try to add the element
-    except queue.Full:
-        removed = q.get()  # Queue is full, remove one element
-        q.put(item)  # Then add the new element with a proper timeout
-    except Exception as err:
-        print(f"manage_queue error: {err}")
-        pass
-
-
 def writeToFile(filename, data):
     try:
         with open(filename, 'a') as file:
@@ -111,7 +96,7 @@ class MinimalPublisher(Node):
         self.imgPublish = self.create_publisher(Img, "img", 10)
         img_timer_period = 1/35
         self.img_timer = self.create_timer(img_timer_period, self.img_callback)
-
+        '''
         # Bbox publish
         self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
         bbox_timer_period = 1/10
@@ -121,16 +106,17 @@ class MinimalPublisher(Node):
         self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
         motor_timer_period = 1/10
         self.motor_timer = self.create_timer(motor_timer_period, self.motor_callback)
-        
+        '''
         self.img = Img()
+        '''
         self.bbox = Bbox()
         self.motorInfo = MotorInfo()
-        
+        '''
     def img_callback(self):
         self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
             self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()        
         self.imgPublish.publish(self.img)
-
+    '''
     def bbox_callback(self):
         bbox_msg = Bbox()
         bbox_msg.class_id = pub_bbox['class_id']
@@ -152,11 +138,11 @@ class MinimalPublisher(Node):
         
         self.motorInfo.pitch_pluse = pub_motor['pitchPluse'] = pitchData
         self.motorInfo.yaw_pluse =   pub_motor['yawPluse'] = yawData  
-        self.motorInfo.pitch_angle = pub_motor['pitchAngle']  = yawData / para.uintDegreeEncoder
-        self.motorInfo.yaw_angle =   pub_motor['yawAngle'] = pitchData / para.uintDegreeEncoder
+        self.motorInfo.pitch_angle = pub_motor['pitchAngle']  = pitchData / para.uintDegreeEncoder
+        self.motorInfo.yaw_angle =   pub_motor['yawAngle'] = yawData / para.uintDegreeEncoder
         
         self.motorInfoPublish.publish(self.motorInfo)
-    
+    '''
     
 class MinimalSubscriber(Node):
     def __init__(self):
