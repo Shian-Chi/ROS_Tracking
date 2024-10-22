@@ -13,7 +13,7 @@ from utils.general import check_img_size, check_imshow, non_max_suppression, app
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
 
-from pid.pid import PID_Ctrl
+from pid.PID_Calc import PID_Ctrl
 from pid.parameter import Parameters
 from pid.motor import motorCtrl
 from pid.motorInit import MotorSet
@@ -183,12 +183,12 @@ class MinimalPublisher(Node):
         self.bbox = Bbox()
         
         # MotorInfo publish
-        """
+        
         self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
         motor_timer_period = 1/10
         self.motor_timer = self.create_timer(motor_timer_period, self.motor_callback)
         self.motorInfo = MotorInfo()
-        """
+        
         
     def img_callback(self):
         self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
@@ -208,7 +208,7 @@ class MinimalPublisher(Node):
 
         # Publish BoundingBox message
         self.bboxPublish.publish(bbox_msg)
-    """
+    
     def motor_callback(self):
         _, yawData = yaw.getEncoder()
         time.sleep(0.01)
@@ -220,7 +220,7 @@ class MinimalPublisher(Node):
         self.motorInfo.yaw_angle =   pub_motor['yawAngle'] = pitchData / para.uintDegreeEncoder
         
         self.motorInfoPublish.publish(self.motorInfo)
-    """
+    
 
 def _spinThread(pub, sub):
     # Create an executor and spin the ROS nodes in this process

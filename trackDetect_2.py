@@ -13,7 +13,7 @@ from utils.general import check_img_size, check_imshow, non_max_suppression, app
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
 
-from pid.pid import PID_Ctrl
+from pid.PID_Calc import PID_Ctrl
 from pid.parameter import Parameters
 from pid.motor import motorCtrl
 
@@ -96,7 +96,7 @@ class MinimalPublisher(Node):
         self.imgPublish = self.create_publisher(Img, "img", 10)
         img_timer_period = 1/35
         self.img_timer = self.create_timer(img_timer_period, self.img_callback)
-        '''
+        
         # Bbox publish
         self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
         bbox_timer_period = 1/10
@@ -106,17 +106,17 @@ class MinimalPublisher(Node):
         self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
         motor_timer_period = 1/10
         self.motor_timer = self.create_timer(motor_timer_period, self.motor_callback)
-        '''
+        
         self.img = Img()
-        '''
+        
         self.bbox = Bbox()
         self.motorInfo = MotorInfo()
-        '''
+        
     def img_callback(self):
         self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
             self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()        
         self.imgPublish.publish(self.img)
-    '''
+    
     def bbox_callback(self):
         bbox_msg = Bbox()
         bbox_msg.class_id = pub_bbox['class_id']
@@ -142,7 +142,7 @@ class MinimalPublisher(Node):
         self.motorInfo.yaw_angle =   pub_motor['yawAngle'] = yawData / para.uintDegreeEncoder
         
         self.motorInfoPublish.publish(self.motorInfo)
-    '''
+    
     
 class MinimalSubscriber(Node):
     def __init__(self):
