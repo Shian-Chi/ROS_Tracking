@@ -1,5 +1,5 @@
-from pid.motorInit import MotorSet
-from pid.parameter import Parameters, hexStr
+from ctrl.pid.motorInit import MotorSet
+from ctrl.pid.parameter import Parameters, hexStr
 import numpy as np
 import struct
 import time
