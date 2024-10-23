@@ -13,11 +13,14 @@ from utils.general import check_img_size, check_imshow, non_max_suppression, app
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
 
-from ctrl.gimbal_PID import GimbalTimerTask
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from ctrl.gimbal_PID import GimbalTimerTask, yaw, pitch
 from ctrl.pid.parameter import Parameters
 
 import threading as thrd
-import sys, signal
+import signal
 import queue, math
 
 import rclpy
@@ -46,8 +49,8 @@ pub_bbox = {
     'class_id': 0,
     'confidence': 0.0,
     'x0': 1280,
-    'x1': 720,
-    'y0': 0,
+    'x1': 0,
+    'y0': 720,
     'y1': 0
 }
 
@@ -64,7 +67,7 @@ para = Parameters()
 
 
 def signal_handler(sig, frame):
-    global yaw, pitch, ROS_Pub, ROS_Sub
+    global yaw, pitch, executor
     print('Signal detected, shutting down gracefully')
     yaw.stop()
     pitch.stop()
@@ -115,6 +118,7 @@ class MinimalPublisher(Node):
     
     def bbox_callback(self):
         bbox_msg = Bbox()
+        bbox_msg.detect = pub_bbox['detect']
         bbox_msg.class_id = pub_bbox['class_id']
         bbox_msg.confidence = pub_bbox['confidence']
 
@@ -160,6 +164,7 @@ class MinimalSubscriber(Node):
         self.gimbalYaw = 0.0
         self.gimbalPitch = 0.0
         self.discm = 0.0
+        self.detect = False
         self.x0 = 0
         self.y0 = 0
         self.x1 = 0
@@ -195,31 +200,8 @@ class MinimalSubscriber(Node):
         self.x1 = msg.x1
         self.y1 = msg.y1
     
-    def getImuPitch(self):
-        return self.pitch
-
-    def getImuYaw(self):
-        return self.yaw
-
-    def getImuRoll(self):
-        return self.roll
-
-    def getHold(self):
-        return pub_img["hold_status"]
-
-    def getLatitude(self):
-        return self.latitude
-
-    def getLongitude(self):
-        return self.longitude
-
-    def getAltitude(self):
-        return self.gps_altitude
-
-    def getDistance(self):
-        return self.discm
-
-    def get_bbox_position(self):
+    def get_bbox(self):
+        # print(f"get_bbox: {self.detect}")
         return self.x0, self.y0, self.x1, self.y1
 
 
@@ -307,6 +289,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
     previous_xyxy = None
     detection_count = 0
+    detect_status = False
     t0 = time.time()
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
@@ -378,13 +361,10 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 detect_status = detection_count >= 4
                 pub_img['detect'] = pub_bbox['detect'] = detect_status
                 
-                if detect_status:
-                    xyxyCtx.put(max_xyxy)
                 previous_xyxy = max_xyxy
                 
             else:
                 pub_img['detect'] = pub_bbox['detect'] = False
-            
             if max_xyxy is not None:
                 Update_pub_bbox(detect_status, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
             else:
@@ -392,11 +372,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 
             # Print time (inference + NMS)
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
-
-            # Stream results
-            if view_img:
-                cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
 
         
 def main(args=None):
