@@ -1,4 +1,4 @@
-from pid.parameter import Parameters
+from ctrl.pid.parameter import Parameters
 para = Parameters()
 
 
