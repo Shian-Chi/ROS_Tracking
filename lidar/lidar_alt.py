@@ -34,7 +34,7 @@ class LidarPublisher(Node):
         self.timer = self.create_timer(0.1, self.publish_distance)  # 10Hz
         self.bus = smbus2.SMBus(8)  # I2C Bus number may vary
         self.lidar_address = 0x62
-        self.path = f"/home/ubuntu/yolo/yolo_tracking_v2/distances_{formatted_time}.txt"
+        self.path = f"/home/ubuntu/yolo/yolo_tracking_v2/lidar/distances_{formatted_time}.txt"
         self.count = 0
         
     def publish_distance(self):
@@ -60,6 +60,7 @@ class LidarPublisher(Node):
             high_byte = self.bus.read_byte_data(self.lidar_address, 0x11)
             distance = (high_byte << 8) + low_byte
             wData = f"{self.count}: {distance}cm"
+            print(f"alt: {wData}")
             writeData(self.path, wData)
             self.count += 1
             return distance
