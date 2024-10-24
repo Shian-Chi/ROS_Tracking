@@ -61,7 +61,6 @@ class GimbalTimerTask(Node):
 
         x, y = (xyxy[0] + xyxy[2]) / 2, (xyxy[1] + xyxy[3]) / 2
         pidErr = pid.pid_run(x, y)
-        print(f"PID ERR: {pidErr}")
         # Motor rotation
         if abs(pidErr[0]) != 0:
             yaw.incrementTurnVal(int(pidErr[0] * 100))
