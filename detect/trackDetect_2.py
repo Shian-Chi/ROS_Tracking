@@ -55,14 +55,6 @@ pub_bbox = {
 }
 
 
-pub_motor ={
-    'pitchAngle': 0.0,
-    'yawAngle': 0.0,
-    'pitchPluse' : 0,
-    'yawPluse' : 0
-}
-
-
 para = Parameters()
 
 
@@ -88,62 +80,9 @@ def writeToFile(filename, data):
         print(f"Failed to write to file: {e}")
 
 
-class MinimalPublisher(Node):
-    def __init__(self):
-        super().__init__("minimal_publisher")
-        # Img publish
-        self.imgPublish = self.create_publisher(Img, "img", 10)
-        img_timer_period = 1/35
-        self.img_timer = self.create_timer(img_timer_period, self.img_callback)
-        
-        # Bbox publish
-        self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
-        bbox_timer_period = 1/10
-        self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
-       
-        # MotorInfo publish
-        self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
-        motor_timer_period = 1/10
-        self.motor_timer = self.create_timer(motor_timer_period, self.motor_callback)
-        
-        self.img = Img()
-        
-        self.bbox = Bbox()
-        self.motorInfo = MotorInfo()
-        
-    def img_callback(self):
-        self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
-            self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()        
-        self.imgPublish.publish(self.img)
-    
-    def bbox_callback(self):
-        bbox_msg = Bbox()
-        bbox_msg.detect = pub_bbox['detect']
-        bbox_msg.class_id = pub_bbox['class_id']
-        bbox_msg.confidence = pub_bbox['confidence']
+rclpy.init(args=None)
 
-        bbox_msg.x0 = pub_bbox['x0']
-        bbox_msg.y0 = pub_bbox['y0']
 
-        bbox_msg.x1 = pub_bbox['x1']
-        bbox_msg.y1 = pub_bbox['y1']
-
-        # Publish BoundingBox message
-        self.bboxPublish.publish(bbox_msg)
-
-    def motor_callback(self):
-        _, yawData = yaw.getEncoder()
-        time.sleep(0.01)
-        _, pitchData = pitch.getEncoder()
-        
-        self.motorInfo.pitch_pluse = pub_motor['pitchPluse'] = pitchData
-        self.motorInfo.yaw_pluse =   pub_motor['yawPluse'] = yawData  
-        self.motorInfo.pitch_angle = pub_motor['pitchAngle']  = pitchData / para.uintDegreeEncoder
-        self.motorInfo.yaw_angle =   pub_motor['yawAngle'] = yawData / para.uintDegreeEncoder
-        
-        self.motorInfoPublish.publish(self.motorInfo)
-    
-    
 class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
@@ -152,23 +91,29 @@ class MinimalSubscriber(Node):
         self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         # self.gimbalRemove = self.create_subscription(GimbalDegree, "gimDeg", self.gimAngDegcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.distance = self.create_subscription(Lidar, "lidar", self.lidarcb, 10)
-        self.bboxcb = self.create_subscription(Bbox, 'bbox', self.bboxcb, 10)
+        self.bboxPredcd = self.create_subscription(Bbox, 'bbox', self.bboxcb, 10)
+        self.motorcb = self.create_subscription(MotorInfo, 'motor_info', self.motorInfocb, 10)
         
         self.hold = False
         self.latitude = 0.0
         self.longitude = 0.0
         self.gps_altitude = 0.0
-        self.pitch = 0.0
-        self.roll = 0.0
-        self.yaw = 0.0
+        self.drone_pitch = 0.0
+        self.drone_roll = 0.0
+        self.drone_yaw = 0.0
         self.gimbalYaw = 0.0
         self.gimbalPitch = 0.0
         self.discm = 0.0
         self.detect = False
+        self.ID = -1
+        self.conf = -1
         self.x0 = 0
         self.y0 = 0
         self.x1 = 0
         self.y1 = 0
+        
+        self.gimbalYawDeg = 0.0
+        self.gimbalPitchDeg = 0.0
 
     def gimAngDegcb(self, msg):
         self.gimbalYaw = msg.yaw
@@ -187,22 +132,73 @@ class MinimalSubscriber(Node):
                                            msg.orientation.x,
                                            msg.orientation.y,
                                            msg.orientation.z])
-        self.pithch = radian_conv_degree(ned_euler_data[0])
-        self.roll = radian_conv_degree(ned_euler_data[1])
-        self.yaw = radian_conv_degree(ned_euler_data[2])
+        self.drone_pithch = radian_conv_degree(ned_euler_data[0])
+        self.drone_roll = radian_conv_degree(ned_euler_data[1])
+        self.drone_yaw = radian_conv_degree(ned_euler_data[2])
 
     def lidarcb(self, msg):
         self.discm = msg.distance_cm
 
     def bboxcb(self, msg):
+        self.detect = msg.detect
+        self.ID = msg.class_id
+        self.conf = msg.confidence
         self.x0 = msg.x0
         self.y0 = msg.y0
         self.x1 = msg.x1
         self.y1 = msg.y1
     
+    def motorInfocb(self, msg):
+        self.gimbalYawDeg = pub_img['motor_yaw'] = msg.yaw_angle
+        self.gimbalPitchDeg = pub_img['motor_pitch'] = msg.pitch_angle
+    
     def get_bbox(self):
         # print(f"get_bbox: {self.detect}")
         return self.x0, self.y0, self.x1, self.y1
+
+ROS_Sub = MinimalSubscriber()
+gimbalTask = GimbalTimerTask(ROS_Sub)
+
+
+class MinimalPublisher(Node):
+    def __init__(self):
+        super().__init__("minimal_publisher")
+        # Img publish
+        self.imgPublish = self.create_publisher(Img, "img", 10)
+        img_timer_period = 1/25
+        self.img_timer = self.create_timer(img_timer_period, self.img_callback)
+        
+        # Bbox publish
+        self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
+        bbox_timer_period = 1/25
+        self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
+        
+        self.img = Img()
+        self.bbox = Bbox()
+        
+    def img_callback(self):
+        pub_img['camera_center'] = gimbalTask.bbox_center
+        pub_img['motor_pitch'] = pub_img['motor_pitch'] + ROS_Sub.drone_pitch
+        pub_img['motor_yaw'] = pub_img['motor_yaw']
+        self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
+            self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()        
+        self.imgPublish.publish(self.img)
+    
+    def bbox_callback(self):
+        self.bbox.detect = pub_bbox['detect']
+        self.bbox.class_id = pub_bbox['class_id']
+        self.bbox.confidence = pub_bbox['confidence']
+
+        self.bbox.x0 = pub_bbox['x0']
+        self.bbox.y0 = pub_bbox['y0']
+
+        self.bbox.x1 = pub_bbox['x1']
+        self.bbox.y1 = pub_bbox['y1']
+
+        # Publish BoundingBox message
+        self.bboxPublish.publish(self.bbox)
+    
+ROS_Pub = MinimalPublisher()
 
 
 def _spinThread(*args):
@@ -365,6 +361,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 
             else:
                 pub_img['detect'] = pub_bbox['detect'] = False
+                
             if max_xyxy is not None:
                 Update_pub_bbox(detect_status, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
             else:
@@ -372,18 +369,15 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 
             # Print time (inference + NMS)
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
-
+            print(f"Total Pitch Degrees: {pub_img['motor_pitch']}")
         
 def main(args=None):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
      
     # ROS
-    rclpy.init(args=args)
     global ROS_Pub, ROS_Sub
-    ROS_Pub = MinimalPublisher()
-    ROS_Sub = MinimalSubscriber()
-    gimbalTask = GimbalTimerTask(ROS_Sub)
+
     ROS_spin = thrd.Thread(target=_spinThread, args=(ROS_Pub, ROS_Sub, gimbalTask))
     ROS_spin.start()
     

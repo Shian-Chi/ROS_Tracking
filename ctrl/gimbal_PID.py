@@ -2,14 +2,15 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 
-import sys
+import sys, time
 import signal
 from ctrl.pid.PID_Calc import PID_Ctrl
 from ctrl.pid.motor import motorCtrl
-from tutorial_interfaces.msg import Bbox
+from ctrl.pid.parameter import Parameters
+from tutorial_interfaces.msg import Bbox, MotorInfo
 
 pid = PID_Ctrl()
-
+para = Parameters()
 yaw = motorCtrl(1, "yaw", 0, 90.0)
 pitch = motorCtrl(2, "pitch", 0, 360.0)
 
@@ -28,16 +29,24 @@ class GimbalSubscriber(Node):
         self.x1 = 0
         self.y1 = 0
 
-    def listener_callback(self, msg):
-
+    def listener_callback(self, msg):        
+        self.detect = msg.detect
+        self.ID = msg.class_id
+        self.conf = msg.confidence
         self.x0 = msg.x0
         self.y0 = msg.y0
         self.x1 = msg.x1
         self.y1 = msg.y1
 
     def get_bbox(self):
-        print(f"get_bbox: {self.detect}")
+        # print(f"get_bbox: {self.detect}")
         return self.x0, self.y0, self.x1, self.y1
+
+
+def getGimbalEncoders():
+    Y_ret, Y_Encoder= yaw.getEncoder()
+    P_ret, P_Encoder= pitch.getEncoder()
+    return Y_Encoder, P_Encoder
 
 
 class GimbalTimerTask(Node):
@@ -52,29 +61,51 @@ class GimbalTimerTask(Node):
         gimbal_period = 1 / 21  # 21 Hz
         self.gimbal_task = self.create_timer(gimbal_period, self.gimdal_ctrl)
 
+        self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
+        self.motor_timer = self.create_timer(1/25, self.motor_callback)
+
+        self.motorInfo = MotorInfo()
+        
         self.bbox_center = False
         self.l_xyxy = [0, 0, 0, 0]
+        self.pitchEncoder, self.yawEncoder = 0, 0
+        self.pitchAngle, self.yawAngle = 0.0, 0.0
 
     def gimdal_ctrl(self):
-        m_flag1 = m_flag2 =False  # Ensure flags are initialized
-        xyxy = list(self.sub_para.get_bbox())
+        m_flag1 = m_flag2 = False  # Ensure flags are initialized
+        if self.sub_para.detect:
+            xyxy = list(self.sub_para.get_bbox())
 
-        x, y = (xyxy[0] + xyxy[2]) / 2, (xyxy[1] + xyxy[3]) / 2
-        pidErr = pid.pid_run(x, y)
-        # Motor rotation
-        if abs(pidErr[0]) != 0:
-            yaw.incrementTurnVal(int(pidErr[0] * 100))
-        else:
-            m_flag1 = True
+            x, y = (xyxy[0] + xyxy[2]) / 2, (xyxy[1] + xyxy[3]) / 2
+            pidErr = pid.pid_run(x, y)
+            # Motor rotation
+            if abs(pidErr[0]) != 0:
+                yaw.incrementTurnVal(int(pidErr[0] * 100))
+            else:
+                m_flag1 = True
 
-        if abs(pidErr[1]) != 0:
-            pitch.incrementTurnVal(int(pidErr[1] * 100))
-        else:
-            m_flag2 = True
+            if abs(pidErr[1]) != 0:
+                pitch.incrementTurnVal(int(pidErr[1] * 100))
+            else:
+                m_flag2 = True
 
         self.bbox_center = m_flag1 and m_flag2
-        xyxy = self.l_xyxy
+            
 
+    def motor_callback(self):
+        if self.bbox_center:
+            _, yawData = yaw.getEncoder()
+            time.sleep(0.01)
+            _, pitchData = pitch.getEncoder()
+            self.motorInfo.pitch_pluse = pitchData
+            self.motorInfo.yaw_pluse =  yawData 
+            pA, yA = pitchData / para.uintDegreeEncoder, yawData / para.uintDegreeEncoder
+            self.motorInfo.pitch_angle = pA
+            self.motorInfo.yaw_angle = yA
+            print(f"center: {self.bbox_center}\nyaw angle: {yA:.2f}, pitch angle: {pA:.2f}\n")
+            
+        self.motorInfoPublish.publish(self.motorInfo)
+        
 def spinThread(sub, task):
     executor = MultiThreadedExecutor()
     executor.add_node(sub)

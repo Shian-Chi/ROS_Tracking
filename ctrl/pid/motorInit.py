@@ -86,7 +86,7 @@ class MotorSet:
                 self.gpio_low(11)  # 設置 RTS 為低電位
                 return self.ser.read(size)  # 讀取指定大小的資料
             else:
-                print(f"No data available to read. in_waiting: {l}")
+                # print(f"No data available to read. in_waiting: {l}")
                 return None
         except OSError:
             # ignore or log...  Let the loop retry.
