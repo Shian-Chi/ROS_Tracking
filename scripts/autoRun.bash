@@ -22,18 +22,18 @@ nohup python3 /home/ubuntu/CSI_Camera_H265/recording_timeout.py &
 sleep 3
 
 # Flight
-python3 /home/ubuntu/yolo/yolo_tracking_v2/drone_landing_ROS2.py &
+python3 /home/ubuntu/yolo/yolo_tracking_v2/flight/drone_landing_ROS2.py &
 sleep 20
 
 # PWCL
-python3 /home/ubuntu/yolo/yolo_tracking_v2/drone_PWCL_new.py &
+python3 /home/ubuntu/yolo/yolo_tracking_v2/PWCL/drone_PWCL_new.py &
 sleep 20
 
 #Lidar
-#nohup python3 /home/ubuntu/yolo/yolo_tracking_v2/lidar_alt.py &
+nohup python3 /home/ubuntu/yolo/yolo_tracking_v2/lidar_alt.py &
 #sleep 3
 
 # YOLO
-pipenv run python3 /home/ubuntu/yolo/yolo_tracking_v2/trackDetect_2.py &
+nohup pipenv run python3 /home/ubuntu/yolo/yolo_tracking_v2/detect/trackDetect_2.py &
 
 sleep 1000000000
