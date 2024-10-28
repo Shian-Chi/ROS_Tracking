@@ -62,7 +62,7 @@ class GimbalTimerTask(Node):
         self.gimbal_task = self.create_timer(gimbal_period, self.gimdal_ctrl)
 
         self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
-        self.motor_timer = self.create_timer(1/25, self.motor_callback)
+        self.motor_timer = self.create_timer(1/20, self.motor_callback)
 
         self.motorInfo = MotorInfo()
         
@@ -93,17 +93,15 @@ class GimbalTimerTask(Node):
             
 
     def motor_callback(self):
-        if self.bbox_center:
-            _, yawData = yaw.getEncoder()
-            time.sleep(0.01)
-            _, pitchData = pitch.getEncoder()
-            self.motorInfo.pitch_pluse = pitchData
-            self.motorInfo.yaw_pluse =  yawData 
-            pA, yA = pitchData / para.uintDegreeEncoder, yawData / para.uintDegreeEncoder
-            self.motorInfo.pitch_angle = pA
-            self.motorInfo.yaw_angle = yA
-            print(f"center: {self.bbox_center}\nyaw angle: {yA:.2f}, pitch angle: {pA:.2f}\n")
-            
+        _, yawData = yaw.getEncoder()
+        time.sleep(0.01)
+        _, pitchData = pitch.getEncoder()
+        self.motorInfo.pitch_pluse = pitchData
+        self.motorInfo.yaw_pluse =  yawData 
+        pA, yA = pitchData / para.uintDegreeEncoder, yawData / para.uintDegreeEncoder
+        self.motorInfo.pitch_angle = pA
+        self.motorInfo.yaw_angle = yA
+        # print(f"center: {self.bbox_center}\nyaw angle: {yA:.2f}, pitch angle: {pA:.2f}\n")
         self.motorInfoPublish.publish(self.motorInfo)
         
 def spinThread(sub, task):
