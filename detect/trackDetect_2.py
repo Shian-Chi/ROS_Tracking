@@ -367,9 +367,9 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             else:
                 Update_pub_bbox(False, 0, 0.0, 1280, 720)
                 
-            # Print time (inference + NMS)
+            # Print time (inference + NMS) and gimbal Degrees
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
-            print(f"Total Pitch Degrees: {pub_img['motor_pitch']}")
+            print(f"Total Pitch Degrees: {pub_img['motor_pitch']:.2f}, yaw Degrees: {pub_img['motor_yaw']:.2f}")
         
 def main(args=None):
     signal.signal(signal.SIGINT, signal_handler)
@@ -384,10 +384,10 @@ def main(args=None):
     # YOLO
     # Settings directly specified here
     weights = 'landpad20240522.pt'                                              # Model weights file path
-    source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/test'    # Data source path
+    source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/video_feed'    # Data source path
     # Data source path
     img_size = 640                                                              # Image size for inference
-    conf_thres = 0.45                                                           # Object confidence threshold
+    conf_thres = 0.4                                                            # Object confidence threshold
     iou_thres = 0.3                                                             # IOU threshold for NMS
     device = '0'                                                                # Device to run the inference on, '' for auto-select
     view_img = not True                                                         # Whether to display images during processing
