@@ -171,7 +171,7 @@ class DroneTimerTaskNode(Node):
         # 頭碼及尾碼
         head = bytes('\x30', 'utf-8')
         end = bytes('\x40', 'utf-8')
-        drone_id = bytes('\x02', 'utf-8')
+        drone_id = bytes('\x01', 'utf-8')
         battery_temp = 0.0
         global droneSub
         packet = struct.pack('=1s9f1f1f1f1d1d1i1s1s',

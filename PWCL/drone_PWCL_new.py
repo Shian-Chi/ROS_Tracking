@@ -30,9 +30,9 @@ from tutorial_interfaces.msg import Img, Bbox, GimbalDegree
 drone_point = [] #無人機不固定飛行點
 # ipaddr = '10.147.20.230' # Grounds station vpn address
 # ipaddr = '172.22.75.0' # Grounds station vpn address
-ipaddr = '192.168.0.75' # Grounds station Wi-Fi address
+ipaddr = '10.147.20.45' # Grounds station Wi-Fi address
 port = 80
-drone_id = bytes('\x02', 'utf-8')
+drone_id = bytes('\x01', 'utf-8')
 
 speed_count = []
 altitude_count = []
