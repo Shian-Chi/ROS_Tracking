@@ -13,13 +13,14 @@ from utils.general import check_img_size, check_imshow, non_max_suppression, app
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
 
-from pid.PID_Calc import PID_Ctrl
-from pid.parameter import Parameters
-from pid.motor import motorCtrl
-from pid.motorInit import MotorSet
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from ctrl.gimbal_PID import GimbalTimerTask, yaw, pitch
+from ctrl.pid.parameter import Parameters
 
 import threading as thrd
-import sys, signal
+import signal
 import queue, math
 
 import rclpy
@@ -28,8 +29,8 @@ from rclpy.qos import ReliabilityPolicy, QoSProfile
 from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import NavSatFix, Imu
 from transforms3d import euler
-from tutorial_interfaces.msg import Img, Bbox, GimbalDegree, Lidar, MotorInfo
-# from mavros_msgs.msg import Img, Bbox, GimbalDegree, Lidar, MotorInfo
+from tutorial_interfaces.msg import Img, Bbox, Lidar, MotorInfo
+# from mavros_msgs.msg import Altitude, Lidar, Bbox, Img
 
 
 pub_img = {"detect": False,
@@ -48,50 +49,27 @@ pub_bbox = {
     'class_id': 0,
     'confidence': 0.0,
     'x0': 1280,
-    'x1': 720,
-    'y0': 0,
+    'x1': 0,
+    'y0': 720,
     'y1': 0
 }
 
 
-pub_motor ={
-    'pitchAngle': 0.0,
-    'yawAngle': 0.0,
-    'pitchPluse' : 0,
-    'yawPluse' : 0
-}
-
-
-pid = PID_Ctrl()
 para = Parameters()
 
+
 def signal_handler(sig, frame):
-    global yaw, pitch, ROS_Pub, ROS_Sub
+    global yaw, pitch, executor
     print('Signal detected, shutting down gracefully')
     yaw.stop()
     pitch.stop()
-    ROS_Pub.destroy_node()
-    ROS_Sub.destroy_node()
+    executor.shutdown()
     rclpy.shutdown()
     sys.exit(0)
     
 
 def radian_conv_degree(Radian):
     return ((Radian / math.pi) * 180)
-
-
-def manage_queue(q, item):
-    """
-    Attempts to add an item to the queue. If the queue is full, it removes an item before adding the new one.
-    """
-    try:
-        q.put_nowait(item)  # Try to add the element
-    except queue.Full:
-        removed = q.get()  # Queue is full, remove one element
-        q.put(item)  # Then add the new element with a proper timeout
-    except Exception as err:
-        print(f"manage_queue error: {err}")
-        pass
 
 
 def writeToFile(filename, data):
@@ -102,25 +80,45 @@ def writeToFile(filename, data):
         print(f"Failed to write to file: {e}")
 
 
-rclpy.init(args=None)   
+rclpy.init(args=None)
+
+
 class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("minimal_subscriber")
         self.GlobalPositionSuub = self.create_subscription(NavSatFix, "mavros/global_position/global", self.GPcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        # self.gimbalRemove = self.create_subscription(GimbalDegree, "gimDeg", self.gimAngDegcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.distance = self.create_subscription(Lidar, "lidar", self.lidarcb, 10)
+        self.bboxPredcd = self.create_subscription(Bbox, 'bbox', self.bboxcb, 10)
+        self.motorcb = self.create_subscription(MotorInfo, 'motor_info', self.motorInfocb, 10)
+        
         self.hold = False
         self.latitude = 0.0
         self.longitude = 0.0
         self.gps_altitude = 0.0
-        self.pitch = 0.0
-        self.roll = 0.0
-        self.yaw = 0.0
+        self.drone_pitch = 0.0
+        self.drone_roll = 0.0
+        self.drone_yaw = 0.0
         self.gimbalYaw = 0.0
         self.gimbalPitch = 0.0
         self.discm = 0.0
-  
+        self.detect = False
+        self.ID = -1
+        self.conf = -1
+        self.x0 = 0
+        self.y0 = 0
+        self.x1 = 0
+        self.y1 = 0
+        
+        self.gimbalYawDeg = 0.0
+        self.gimbalPitchDeg = 0.0
+
+    def gimAngDegcb(self, msg):
+        self.gimbalYaw = msg.yaw
+        self.gimbalPitch = msg.pitch
+    
     def holdcb(self, msg):
         self.hold = pub_img["hold_status"] = msg.hold_status
 
@@ -134,106 +132,86 @@ class MinimalSubscriber(Node):
                                            msg.orientation.x,
                                            msg.orientation.y,
                                            msg.orientation.z])
-        self.pithch = radian_conv_degree(ned_euler_data[0])
-        self.roll = radian_conv_degree(ned_euler_data[1])
-        self.yaw = radian_conv_degree(ned_euler_data[2])
+        self.drone_pithch = radian_conv_degree(ned_euler_data[0])
+        self.drone_roll = radian_conv_degree(ned_euler_data[1])
+        self.drone_yaw = radian_conv_degree(ned_euler_data[2])
 
     def lidarcb(self, msg):
         self.discm = msg.distance_cm
+
+    def bboxcb(self, msg):
+        self.detect = msg.detect
+        self.ID = msg.class_id
+        self.conf = msg.confidence
+        self.x0 = msg.x0
+        self.y0 = msg.y0
+        self.x1 = msg.x1
+        self.y1 = msg.y1
     
-    def getImuPitch(self):
-        return self.pitch
+    def motorInfocb(self, msg):
+        self.gimbalYawDeg = pub_img['motor_yaw'] = msg.yaw_angle
+        self.gimbalPitchDeg = pub_img['motor_pitch'] = msg.pitch_angle
+    
+    def get_bbox(self):
+        # print(f"get_bbox: {self.detect}")
+        return self.x0, self.y0, self.x1, self.y1
 
-    def getImuYaw(self):
-        return self.yaw
-
-    def getImuRoll(self):
-        return self.roll
-
-    def getHold(self):
-        return pub_img["hold_status"]
-
-    def getLatitude(self):
-        return self.latitude
-
-    def getLongitude(self):
-        return self.longitude
-
-    def getAltitude(self):
-        return self.gps_altitude
-
-    def getDistance(self):
-        return self.discm
+ROS_Sub = MinimalSubscriber()
+gimbalTask = GimbalTimerTask(ROS_Sub)
 
 
 class MinimalPublisher(Node):
     def __init__(self):
         super().__init__("minimal_publisher")
-        self.sub = ROS_Sub
         # Img publish
         self.imgPublish = self.create_publisher(Img, "img", 10)
-        img_timer_period = 1/20
+        img_timer_period = 1/25
         self.img_timer = self.create_timer(img_timer_period, self.img_callback)
-        self.img = Img()
         
         # Bbox publish
         self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
-        bbox_timer_period = 1/10
+        bbox_timer_period = 1/25
         self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
+        
+        self.img = Img()
         self.bbox = Bbox()
         
-        # MotorInfo publish
-        
-        self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
-        motor_timer_period = 1/10
-        self.motor_timer = self.create_timer(motor_timer_period, self.motor_callback)
-        self.motorInfo = MotorInfo()
-        
-        
     def img_callback(self):
+        pub_img['camera_center'] = gimbalTask.bbox_center
+        pub_img['motor_pitch'] = pub_img['motor_pitch'] + ROS_Sub.drone_pitch
+        pub_img['motor_yaw'] = pub_img['motor_yaw']
         self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
-            self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values() 
-        self.img.motor_pitch += self.sub.getImuRoll()
+            self.img.target_latitude, self.img.target_longitude, self.img.hold_status, self.img.send_info = pub_img.values()        
         self.imgPublish.publish(self.img)
-
+    
     def bbox_callback(self):
-        bbox_msg = Bbox()
-        bbox_msg.detect = pub_bbox['detect']
-        bbox_msg.class_id = pub_bbox['class_id']
-        bbox_msg.confidence = pub_bbox['confidence']
-        bbox_msg.x0 = pub_bbox['x0']
-        bbox_msg.y0 = pub_bbox['y0']
-        bbox_msg.x1 = pub_bbox['x1']
-        bbox_msg.y1 = pub_bbox['y1']
+        self.bbox.detect = pub_bbox['detect']
+        self.bbox.class_id = pub_bbox['class_id']
+        self.bbox.confidence = pub_bbox['confidence']
+
+        self.bbox.x0 = pub_bbox['x0']
+        self.bbox.y0 = pub_bbox['y0']
+
+        self.bbox.x1 = pub_bbox['x1']
+        self.bbox.y1 = pub_bbox['y1']
 
         # Publish BoundingBox message
-        self.bboxPublish.publish(bbox_msg)
+        self.bboxPublish.publish(self.bbox)
     
-    def motor_callback(self):
-        _, yawData = yaw.getEncoder()
-        time.sleep(0.01)
-        _, pitchData = pitch.getEncoder()
-        
-        self.motorInfo.pitch_pluse = pub_motor['pitchPluse'] = pitchData
-        self.motorInfo.yaw_pluse =   pub_motor['yawPluse'] = yawData  
-        self.motorInfo.pitch_angle = pub_motor['pitchAngle']  = (yawData / para.uintDegreeEncoder) + self.sub.getImuRoll()
-        self.motorInfo.yaw_angle =   pub_motor['yawAngle'] = pitchData / para.uintDegreeEncoder
-        
-        self.motorInfoPublish.publish(self.motorInfo)
-    
+ROS_Pub = MinimalPublisher()
 
-def _spinThread(pub, sub):
-    # Create an executor and spin the ROS nodes in this process
+
+def _spinThread(*args):
+    global executor
     executor = MultiThreadedExecutor()
-    executor.add_node(pub)
-    executor.add_node(sub)
+
+    for task in args:
+        executor.add_node(task)
 
     try:
         executor.spin()
     finally:
-        # Shutdown the nodes after spinning
-        pub.destroy_node()
-        sub.destroy_node()
+        executor.shutdown()
         rclpy.shutdown()
         
 
@@ -246,63 +224,7 @@ def Update_pub_bbox(detect=False, id=0, conf=0.0, x0=0, y0=0, x1=0, y1=0):
     pub_bbox['x1'] = int(x1)
     pub_bbox['y0'] = int(y0)
     pub_bbox['y1'] = int(y1)
-
-
-def motorPID_Ctrl(frameCenter_X, frameCenter_Y):
-    m_flag1, m_flag2 = False, False  # Motor move status
-    pidErr = pid.pid_run(frameCenter_X, frameCenter_Y)
-    
-    # Motor rotation
-    if abs(pidErr[0]) != 0:
-        yaw.incrementTurnVal(int(pidErr[0]*100))
-    else:
-        m_flag1 = True
-
-    if abs(pidErr[1]) != 0:
-        pitch.incrementTurnVal(int(pidErr[1]*100))
-    else:
-        m_flag2 = True
-
-    return m_flag1 and m_flag2, pidErr[0], pidErr[1]
-
-
-def PID(xyxy):
-    global pub_img
-    if (xyxy is not None) and pub_img['detect']:
-        # Calculate the center point of the image frame
-        return motorPID_Ctrl(((xyxy[0] + xyxy[2]) / 2).item(), ((xyxy[1] + xyxy[3]) / 2).item())
-    return False, 0.0, 0.0
-
-
-def getGimbalEncoders():
-    Y_ret, Y_Encoder= yaw.getEncoder()
-    P_ret, P_Encoder= pitch.getEncoder()
-    return Y_Encoder, P_Encoder
-            
-            
-def gimbalCtrl(xyxyCtx): 
-    global pub_img
-    p = "/home/ubuntu/yolo/yolo_tracking_v2/gimbalAngle/angle.txt"
-    camera_center = False
-    while True:
-        if xyxyCtx.full:
-            camera_center, Y_pidErr, P_pidErr, = PID(xyxyCtx.get())
-            
-            print(f"camera_center: {camera_center},\nYawError: {Y_pidErr}, PitchError: {P_pidErr}")
-            if camera_center is True:
-                y, p = getGimbalEncoders()
-                pub_img['camera_center'] = camera_center
-                
-                pub_motor['yawPluse'], pub_motor['pitchAngle'] = y, p
-                pub_motor['yawAngle'], pub_motor['pitchAngle'] = y / para.uintDegreeEncoder, p / para.uintDegreeEncoder
-                
-                pub_img['motor_pitch'] = pub_motor['pitchAngle']
-                pub_img['motor_yaw'] = pub_motor['yawAngle']
-                
-                print(f"yaw angle: {pub_motor['yawAngle']}, pitch angle: {pub_motor['pitchAngle']}")
-            else:
-                pub_img['camera_center'] = False
-                
+              
 
 def bbox_filter(xyxy0, xyxy1):
     c0 = [((xyxy0[0] + xyxy0[2]) / 2), ((xyxy0[1] + xyxy0[3]) / 2)]
@@ -363,7 +285,8 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
 
     previous_xyxy = None
     detection_count = 0
-        
+    detect_status = False
+    t0 = time.time()
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -434,57 +357,38 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 detect_status = detection_count >= 4
                 pub_img['detect'] = pub_bbox['detect'] = detect_status
                 
-                if pub_img['detect']:
-                    xyxyCtx.put(max_xyxy)
                 previous_xyxy = max_xyxy
                 
             else:
                 pub_img['detect'] = pub_bbox['detect'] = False
-            
+                
             if max_xyxy is not None:
-                Update_pub_bbox(True, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
+                Update_pub_bbox(detect_status, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
             else:
                 Update_pub_bbox(False, 0, 0.0, 1280, 720)
                 
-            # Print time (inference + NMS)
+            # Print time (inference + NMS) and gimbal Degrees
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
-
-            # Stream results
-            """
-            if view_img:
-                cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
-            """
+            print(f"Total Pitch Degrees: {pub_img['motor_pitch']:.2f}, yaw Degrees: {pub_img['motor_yaw']:.2f}")
         
-def main():
+def main(args=None):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-  
-    # Gimbal
-    global xyxyCtx
-    global yaw, pitch
-    yaw = motorCtrl(1, "yaw", 0, 90.0)
-    pitch = motorCtrl(2, "pitch", 0, 360.0)
-    print(f"\033[34m Yaw encoder: {yaw.info.encoder},\n Pitch encoder:{pitch.info.encoder} \033[m")
-    xyxyCtx = queue.Queue()
-    gimbalCtrlThread = thrd.Thread(target=gimbalCtrl, args=(xyxyCtx,))
-    gimbalCtrlThread.start()
-    
+     
     # ROS
-    global ROS_Pub, ROS_Sub, ROS_spin
-    ROS_Sub = MinimalSubscriber()
-    ROS_Pub = MinimalPublisher()
-    ROS_spin = thrd.Thread(target=_spinThread, args=(ROS_Pub, ROS_Sub))
+    global ROS_Pub, ROS_Sub
+
+    ROS_spin = thrd.Thread(target=_spinThread, args=(ROS_Pub, ROS_Sub, gimbalTask))
     ROS_spin.start()
     
     # YOLO
     # Settings directly specified here
     weights = 'landpad20240522.pt'                                              # Model weights file path
-    source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/test'    # Data source path
+    source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/video_feed'    # Data source path
     # Data source path
     img_size = 640                                                              # Image size for inference
-    conf_thres = 0.53                                                           # Object confidence threshold
-    iou_thres = 0.3                                                            # IOU threshold for NMS
+    conf_thres = 0.4                                                            # Object confidence threshold
+    iou_thres = 0.3                                                             # IOU threshold for NMS
     device = '0'                                                                # Device to run the inference on, '' for auto-select
     view_img = not True                                                         # Whether to display images during processing
     # Specific classes to detect, None means detect all classes
