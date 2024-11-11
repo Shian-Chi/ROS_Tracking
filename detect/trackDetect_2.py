@@ -294,11 +294,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
 
-        # Warmup
-        if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
-            old_img_b, old_img_h, old_img_w = img.shape[0], img.shape[2], img.shape[3]
-            for i in range(3):
-                model(img, augment=augment)[0]
 
         # Inference
         t1 = time_synchronized()
