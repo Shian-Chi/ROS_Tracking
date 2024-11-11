@@ -15,6 +15,7 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized,
 
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from functools import partial
 
 from ctrl.gimbal_PID import GimbalTimerTask, yaw, pitch
 from ctrl.pid.parameter import Parameters
@@ -68,16 +69,8 @@ def signal_handler(sig, frame):
     sys.exit(0)
     
 
-def radian_conv_degree(Radian):
+def radian_conv_degree(Radian: float) -> float:
     return ((Radian / math.pi) * 180)
-
-
-def writeToFile(filename, data):
-    try:
-        with open(filename, 'a') as file:
-            file.write(f"{data}\n")
-    except IOError as e:
-        print(f"Failed to write to file: {e}")
 
 
 rclpy.init(args=None)
@@ -95,15 +88,25 @@ class MinimalSubscriber(Node):
         self.motorcb = self.create_subscription(MotorInfo, 'motor_info', self.motorInfocb, 10)
         
         self.hold = False
+        
+        # GPS
         self.latitude = 0.0
         self.longitude = 0.0
         self.gps_altitude = 0.0
+        
+        # Drone attitude
         self.drone_pitch = 0.0
         self.drone_roll = 0.0
         self.drone_yaw = 0.0
+        
+        # Gimbal attitude
         self.gimbalYaw = 0.0
         self.gimbalPitch = 0.0
+        
+        # Lidar Measure distance
         self.discm = 0.0
+        
+        # YOLO Bbox
         self.detect = False
         self.ID = -1
         self.conf = -1
@@ -234,6 +237,27 @@ def bbox_filter(xyxy0, xyxy1):
     return dis<=256, dis
         
 
+def detection_hold_count():
+    count = 0
+    status = False
+
+    def inner_detection(stat):
+        nonlocal count, status  # 使用外層變數
+        if stat:
+            count += 1
+        else:
+            count = 0
+        status = count >= 4
+        return status
+
+    # 包裝並返回 inner_detection，並將 count 和 status 作為屬性綁定
+    wrapped_function = partial(inner_detection)
+    wrapped_function.count = lambda: count  # 用 lambda 獲取 count 值
+    wrapped_function.status = lambda: status  # 用 lambda 獲取 status 值
+    return wrapped_function
+
+isContinuous = detection_hold_count()
+
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False, no_trace=False):
     source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
@@ -261,11 +285,10 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         view_img = check_imshow()
         view_img = True
     
-    if webcam:
-        cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
-    else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride)
+
+    cudnn.benchmark = True  # set True to speed up constant image size inference
+    dataset = LoadStreams(source, img_size=imgsz, stride=stride)
+
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
@@ -287,13 +310,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
-
-        # Warmup
-        if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
-            old_img_b, old_img_h, old_img_w = img.shape[0], img.shape[2], img.shape[3]
-            for i in range(3):
-                model(img, augment=augment)[0]
-
+       
         # Inference
         t1 = time_synchronized()
         with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
@@ -312,10 +329,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             max_conf = -1  # Variable to store the maximum confidence value
             max_xyxy = None  # Variable to store the xyxy with the maximum confidence
             
-            if webcam:  # batch_size >= 1
-                p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
-            else:
-                p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
+            p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
 
             p = Path(p)  # to Path
             
@@ -332,22 +346,18 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     if conf > max_conf:
                         max_conf, max_xyxy = conf, xyxy
                         
-                    '''
                     if view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3) # im0 type: <class 'numpy.ndarray'>
-                    '''    
                     
                 # Calculate the distance between the current detection frame and the previous one
+                ret = False  # Set default value for ret
                 if previous_xyxy is not None:
                     # Check whether the previous and next frames are continuous
                     ret, distance = bbox_filter(previous_xyxy, max_xyxy) 
-                    detection_count = detection_count + 1 if ret else 0
-                else:
-                    detection_count = 1
                 
-                detect_status = detection_count >= 4
-                pub_img['detect'] = pub_bbox['detect'] = detect_status
+                isContinuous(ret) # Is YOLO detected continuous
+                pub_img['detect'] = pub_bbox['detect'] = isContinuous.status()
                 
                 previous_xyxy = max_xyxy
                 
@@ -355,18 +365,19 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 pub_img['detect'] = pub_bbox['detect'] = False
                 
             if max_xyxy is not None:
-                Update_pub_bbox(detect_status, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
+                Update_pub_bbox(True, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
             else:
                 Update_pub_bbox(False, 0, 0.0, 1280, 720)
                 
             # Print time (inference + NMS) and gimbal Degrees
             print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
-            print(f"Total Pitch Degrees: {pub_img['motor_pitch']:.2f}, yaw Degrees: {pub_img['motor_yaw']:.2f}")
-        
+            print(f"Total Pitch Degrees: {pub_img['motor_pitch']:.2f}; yaw Degrees: {pub_img['motor_yaw']:.2f}")
+            print(pub_img['detect'], pub_bbox['detect'])
+            
 def main(args=None):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-     
+    
     # ROS
     global ROS_Pub, ROS_Sub
 
@@ -379,8 +390,8 @@ def main(args=None):
     source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/video_feed'    # Data source path
     # Data source path
     img_size = 640                                                              # Image size for inference
-    conf_thres = 0.4                                                            # Object confidence threshold
-    iou_thres = 0.3                                                             # IOU threshold for NMS
+    conf_thres = 0.3                                                            # Object confidence threshold
+    iou_thres = 0.45                                                             # IOU threshold for NMS
     device = '0'                                                                # Device to run the inference on, '' for auto-select
     view_img = not True                                                         # Whether to display images during processing
     # Specific classes to detect, None means detect all classes
@@ -389,9 +400,11 @@ def main(args=None):
     augment = False                                                             # Augmented inference
     no_trace = False                                                            # Don't trace the model for optimizations
     # Call the detect function with all the specified settings
+    
     with torch.no_grad():
         detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
                classes, agnostic_nms, augment, no_trace)
+    
 
 
 if __name__ == '__main__':
