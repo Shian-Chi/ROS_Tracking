@@ -5,14 +5,14 @@ from rclpy.executors import MultiThreadedExecutor
 import sys, time
 import signal
 from ctrl.pid.PID_Calc import PID_Ctrl
-from ctrl.pid.motor import motorCtrl
+from ctrl.pid.motor import motorCtrl, motorInitPositions
 from ctrl.pid.parameter import Parameters
 from tutorial_interfaces.msg import Bbox, MotorInfo
 
 pid = PID_Ctrl()
 para = Parameters()
-yaw = motorCtrl(1, "yaw", 0, 90.0)
-pitch = motorCtrl(2, "pitch", 0, 360.0)
+yaw = motorCtrl(1, "yaw", 90.0)
+pitch = motorCtrl(2, "pitch", 360.0)
 
 
 class GimbalSubscriber(Node):
@@ -52,17 +52,23 @@ def getGimbalEncoders():
 class GimbalTimerTask(Node):
     def __init__(self, sub):
         super().__init__('gimbal_timer_task')
-        
+        motorInitPositions(yaw, 80.0)
+        time.sleep(1)
+        motorInitPositions(pitch, 70.0)
         if sub is not None:
             self.sub_para = sub
         else:
-            self.sub_para = GimbalSubscriber()
-            
-        gimbal_period = 1 / 21  # 21 Hz
-        self.gimbal_task = self.create_timer(gimbal_period, self.gimdal_ctrl)
+            try:
+                self.sub_para = GimbalSubscriber()
+            except:
+                print("no subscriber parameter")
+                sys.exit(1)
+                
+        self.gimbal_task = self.create_timer(1 / 21, self.gimdal_ctrl)
 
+        # Read motor Info
         self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
-        self.motor_timer = self.create_timer(1/20, self.motor_callback)
+        self.motor_timer = self.create_timer(1/10, self.motor_callback)
 
         self.motorInfo = MotorInfo()
         
@@ -101,7 +107,7 @@ class GimbalTimerTask(Node):
         pA, yA = pitchData / para.uintDegreeEncoder, yawData / para.uintDegreeEncoder
         self.motorInfo.pitch_angle = pA
         self.motorInfo.yaw_angle = yA
-        # print(f"center: {self.bbox_center}\nyaw angle: {yA:.2f}, pitch angle: {pA:.2f}\n")
+        print(f"center: {self.bbox_center}\nyaw angle: {yA:.2f}, pitch angle: {pA:.2f}\n")
         self.motorInfoPublish.publish(self.motorInfo)
         
 def spinThread(sub, task):
