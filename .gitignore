@@ -8,6 +8,7 @@ nohup.out
 /root
 .swp
 nohup.out
+.bash.swp
 
 # Repo-specific GitIgnore ----------------------------------------------------------------------------------------------
 *.jpg
