@@ -63,9 +63,8 @@ class motorInformation:
 
 
 class motorCtrl:
-    def __init__(self, motorID, mode, postionInit: float, maxAngles: float):
+    def __init__(self, motorID, mode, maxAngles: float):
         self.ID = np.uint8(motorID)
-
         if mode is None:
             if self.ID == 1:
                 self.mode = "yaw"
@@ -77,7 +76,6 @@ class motorCtrl:
             self.mode = mode
 
         self.info = motorInformation(motorID, self.mode, maxAngles)
-        # self.bootPosition(postionInit)
         self.bootZero()
 
     def stop(self):
@@ -155,7 +153,13 @@ class motorCtrl:
                 break
             time.sleep(0.1)
         print(f"{self.mode} Boot Initialized finished")    
-        
+
+
+def motorInitPositions(targer:motorCtrl, degs:float):
+    targer.incrementTurnVal(int(degs*100))
+    print(f"{targer.mode} run motor Init Positions")
+    
+ 
 # Calculate Checksum of received data
 def calc_value_Checksum(value):
     value = value & 0xFFFFFFFF
@@ -171,7 +175,6 @@ def Checksum(value):
     total = np.sum(val, dtype=np.uint32)
     check_sum = np.uint8(total & 0xFF)
     return check_sum
-
 
 
 def motorSend(data, size):
