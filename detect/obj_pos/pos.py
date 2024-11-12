@@ -9,9 +9,9 @@ class Vector:
 
 class VerticalTargetPositioning:
     def __init__(self):
-        self.positions = []       
-        self.motors = []          
-        self.targetAngles = []    
+        self.positions = [] 
+        self.motors = [] 
+        self.targetAngles = [] 
         self.groundTargetPos = Vector()
         self.D_xy = None
 
@@ -54,8 +54,7 @@ class VerticalTargetPositioning:
             if D_xy is None:
                 return 0.0, 0.0
             self.groundTargetPos.x = self.positions[1].x + D_xy * cos(radians(self.targetAngles[0].z))
-            self.groundTargetPos.y = 
-            .positions[1].y + D_xy * sin(radians(self.targetAngles[0].z))
+            self.groundTargetPos.y = self.positions[1].y + D_xy * sin(radians(self.targetAngles[0].z))
             self.groundTargetPos.z = self.positions[1].z - D_xy * tan(radians(self.targetAngles[1].y))
             return self.groundTargetPos.x, self.groundTargetPos.y
         return 0.0, 0.0
@@ -65,7 +64,7 @@ class VerticalTargetPositioning:
                motorRoll=0.0, motorPitch=0.0, motorYaw=0.0):
         
         self.positions[1].x, self.positions[1].y, self.positions[1].z = self.positions[0].x, self.positions[0].y, self.positions[0].z
-        self.positions[0].x, self.positions[0].y, self.positions[0].z = longitude, latitude, altitude  # 注意这里经度和纬度的顺序
+        self.positions[0].x, self.positions[0].y, self.positions[0].z = longitude, latitude, altitude 
 
         self.imuAndGimbalAngleUpdate(imuRoll, imuPitch, imuYaw, motorRoll, motorPitch, motorYaw)
 
