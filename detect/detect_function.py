@@ -6,7 +6,21 @@ from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
 from utils.general import check_img_size, non_max_suppression, set_logging
 from utils.torch_utils import select_device
+from dataclasses import dataclass
 
+
+@dataclass
+class YoloParameters:
+    weights: str
+    source: str
+    img_size: int
+    conf_thres: float
+    iou_thres: float
+    device: str
+    classes: None
+    agnostic_nms: bool
+    augment: bool
+    
 
 class YoloDetector:
     def __init__(self, weights, source, img_size, conf_thres, iou_thres, device, classes=None, agnostic_nms=False, augment=False):
@@ -74,14 +88,14 @@ class YoloDetector:
                 for c in det[:, -1].unique():
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += f"{n} {self.names[int(c)]}{'s' * (n > 1)}, "
+        inferenceTime = 1E3 * (t2 - t1)
+        NMS_Time = (1E3 * (t3 - t2))
+        print(f'{s}Done. ({inferenceTime:.1f}ms) Inference, ({NMS_Time:.1f}ms) NMS, {(1E3/inferenceTime+NMS_Time)}FPS')
 
-        print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS')
 
-
-def main():
+def YOLO_parameter() -> YoloParameters:
     # YOLO Settings
-    # weights = 'landpad20240522.pt'
-    weights = 'yolov7.pt'
+    weights = 'landpad20240522.pt'
     source = 'rtsp://127.0.0.' + str(np.random.randint(1, 256)) + ':8080/video_feed'
     img_size = 480
     conf_thres = 0.3
@@ -90,9 +104,27 @@ def main():
     classes = None
     agnostic_nms = False
     augment = False
+    return YoloParameters(weights, source, img_size, conf_thres, iou_thres, device, classes, agnostic_nms, augment)
 
-    detector = YoloDetector(weights, source, img_size, conf_thres, iou_thres, device, classes, agnostic_nms, augment)
+
+def runDetection(para: YoloParameters):
+    detector = YoloDetector(
+        para.weights,
+        para.source,
+        para.img_size,
+        para.conf_thres,
+        para.iou_thres,
+        para.device,
+        para.classes,
+        para.agnostic_nms,
+        para.augment
+    )
     detector.run()
+
+
+def main():
+    yoloPara = YOLO_parameter()
+    runDetection(yoloPara)
 
 
 if __name__ == '__main__':
