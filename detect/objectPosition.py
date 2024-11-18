@@ -1,18 +1,4 @@
-import time
-from pathlib import Path
-
-import cv2
-import torch
-import torch.backends.cudnn as cudnn
-# from numpy import random
-import numpy as np
-from models.experimental import attempt_load
-from utils.datasets import LoadStreams, LoadImages
-from utils.general import check_img_size, check_imshow, non_max_suppression, apply_classifier, \
-    scale_coords, set_logging
-from utils.plots import plot_one_box
-from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
-
+from detect_function import YoloDetector, YOLO_parameter
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from functools import partial
@@ -23,6 +9,7 @@ from ctrl.pid.parameter import Parameters
 import threading as thrd
 import signal
 import queue, math
+import numpy as np
 
 import rclpy
 from rclpy.node import Node
@@ -57,7 +44,8 @@ pub_bbox = {
 
 
 para = Parameters()
-
+yoloPara = YOLO_parameter
+detector = YoloDetector(*yoloPara)
 
 def signal_handler(sig, frame):
     global yaw, pitch, executor
@@ -258,121 +246,7 @@ def detection_hold_count():
 
 isContinuous = detection_hold_count()
 
-def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False, no_trace=False):
-    source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
-    webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
-
-    # Initialize
-    set_logging()
-    device = select_device(device)
-    half = device.type != 'cpu'  # half precision only supported on CUDA
-
-    # Load model
-    model = attempt_load(weights, map_location=device)  # load FP32 model
-    stride = int(model.stride.max())  # model stride
-    imgsz = check_img_size(imgsz, s=stride)  # check img_size
-
-    if trace:
-        model = TracedModel(model, device, img_size)
-
-    if half:
-        model.half()  # to FP16
-
-    # Set Dataloader
-    vid_path, vid_writer = None, None
     
-    if view_img:
-        view_img = check_imshow()
-        view_img = True
-    
-
-    cudnn.benchmark = True  # set True to speed up constant image size inference
-    dataset = LoadStreams(source, img_size=imgsz, stride=stride)
-
-
-    # Get names and colors
-    names = model.module.names if hasattr(model, 'module') else model.names
-    colors = [[np.random.randint(0, 255) for _ in range(3)] for _ in names]
-
-    # Run inference
-    if device.type != 'cpu':
-        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-    old_img_w = old_img_h = imgsz
-    old_img_b = 1
-
-    previous_xyxy = None
-    detection_count = 0
-    detect_status = False
-    t0 = time.time()
-    for path, img, im0s, vid_cap in dataset:
-        img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()  # uint8 to fp16/32
-        img /= 255.0  # 0 - 255 to 0.0 - 1.0
-        if img.ndimension() == 3:
-            img = img.unsqueeze(0)
-       
-        # Inference
-        t1 = time_synchronized()
-        with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
-            pred = model(img, augment=augment)[0]
-        t2 = time_synchronized()
-
-        # Apply NMS
-        pred = non_max_suppression(pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
-        t3 = time_synchronized()
-                          
-        # Process detections
-        global pub_img, pub_bbox
-        for i, det in enumerate(pred):  # detections per image
-            # Status setting
-            n = 0 # Classifier
-            max_conf = -1  # Variable to store the maximum confidence value
-            max_xyxy = None  # Variable to store the xyxy with the maximum confidence
-            
-            p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
-
-            p = Path(p)  # to Path
-            
-            if len(det):
-                # Rescale boxes from img_size to im0 size
-                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
-
-                # Print results
-                for c in det[:, -1].unique():
-                    n = (det[:, -1] == c).sum()  # detections per class
-                    s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string                   
-
-                for *xyxy, conf, cls in reversed(det):
-                    if conf > max_conf:
-                        max_conf, max_xyxy = conf, xyxy
-                        
-                    if view_img:  # Add bbox to image
-                        label = f'{names[int(cls)]} {conf:.2f}'
-                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3) # im0 type: <class 'numpy.ndarray'>
-                    
-                # Calculate the distance between the current detection frame and the previous one
-                ret = False  # Set default value for ret
-                if previous_xyxy is not None:
-                    # Check whether the previous and next frames are continuous
-                    ret, distance = bbox_filter(previous_xyxy, max_xyxy) 
-                
-                isContinuous(ret) # Is YOLO detected continuous
-                pub_img['detect'] = pub_bbox['detect'] = isContinuous.status()
-                
-                previous_xyxy = max_xyxy
-                
-            else:
-                pub_img['detect'] = pub_bbox['detect'] = False
-                
-            if max_xyxy is not None:
-                Update_pub_bbox(True, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
-            else:
-                Update_pub_bbox(False, 0, 0.0, 1280, 720)
-                
-            # Print time (inference + NMS) and gimbal Degrees
-            print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
-            print(f"Total Pitch Degrees: {pub_img['motor_pitch']:.2f}; yaw Degrees: {pub_img['motor_yaw']:.2f}")
-            print(pub_img['detect'], pub_bbox['detect'])
             
 def main(args=None):
     signal.signal(signal.SIGINT, signal_handler)
