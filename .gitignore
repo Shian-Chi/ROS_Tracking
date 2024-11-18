@@ -10,6 +10,10 @@ nohup.out
 nohup.out
 .bash.swp
 
+# Bash
+*sh
+*.bash
+
 # Repo-specific GitIgnore ----------------------------------------------------------------------------------------------
 *.jpg
 *.jpeg
