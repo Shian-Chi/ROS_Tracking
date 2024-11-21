@@ -1,6 +1,15 @@
 from math import sin, cos, tan, radians
 from statistics import mean
+from transforms3d import euler
+import time
 
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import ReliabilityPolicy, QoSProfile
+from mavros_msgs.msg import Altitude
+from geometry_msgs.msg import PoseStamped, TwistStamped
+from sensor_msgs.msg import NavSatFix, Imu
+from tutorial_interfaces.msg import MotorInfo
 class Vector:
     def __init__(self, x=0.0, y=0.0, z=0.0):
         self.x = x
@@ -108,23 +117,88 @@ class VerticalTargetPositioningWithAveraging(VerticalTargetPositioning):
         avg_ground_y = mean(self.ground_y_values) if self.ground_y_values else 0.0
         return avg_D_xy, avg_ground_x, avg_ground_y
 
+
+class radianSub(Node):
+    def __init__(self):
+        super().__init__('drone_subscriber')
+        self.AltitudeSub = self.create_subscription(Altitude, 'mavros/altitude', self.Altcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.GlobalPositionSuub = self.create_subscription(NavSatFix, 'mavros/global_position/global', self.GPScb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.imuSub = self.create_subscription(Imu, 'mavros/imu/data', self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.motorSub  = self.create_subscription(MotorInfo, 'motor_info', self.motorInfocb, 10)
+        self.altitude = 0.0
+        self.latitude = 0.0
+        self.longitude = 0.0
+        self.gps_altitude = 0.0
+        self.UAV_pitch_radian = 0.0
+        self.UAV_roll_radian = 0.0
+        self.UAV_yaw_radian = 0.0
+        self.M_yaw_radian = 0.0
+        self.M_pitch_radian = 0.0
+        self.AltitudeSub
+    
+    def Altcb(self, msg): 
+        self.altitude = msg.relative
+ 
+    def GPScb(self, msg):
+        self.latitude = msg.latitude
+        self.longitude = msg.longitude
+        self.gps_altitude = msg.altitude
+
+    def IMUcb(self, msg :Imu):
+        ned_euler_data = euler.quat2euler([msg.orientation.w,
+                                        msg.orientation.x,
+                                        msg.orientation.y,
+                                        msg.orientation.z])
+        self.pitch_radian = ned_euler_data[0]
+        self.roll_radian = ned_euler_data[1]
+        self.yaw_radian = ned_euler_data[2]
+        
+    def motorcb(self, msg):
+        self.M_pitch_radian = radians(msg.pitch_angle)
+        self.M_yaw_radian = radians(msg.yaw_angle)
+    
+class TimerTask(Node):
+    def __init__(self, sub):
+        super().__init__("detect_timer_task")
+        self.timer = self.create_timer(1/20, self.timer_callback)
+        if sub is not None:
+            self.sub = sub
+        else:
+            self.sub = radianSub()
+            
+        self.vtp = VerticalTargetPositioningWithAveraging()
+        self.create_timer(1, self.test_postion)
+        
+        self.data_samples = [
+        (25.019192519150497, 121.40117406115353, 100.0, 10.0, 20.0, 30.0, 5.0, 10.0, 15.0),
+        (25.01929703176808, 121.40145569310286, 95.0, 12.0, 22.0, 32.0, 7.0, 12.0, 17.0),
+        (25.019397898512302, 121.40170111523015, 90.0, 14.0, 24.0, 34.0, 9.0, 14.0, 19.0)
+        ]
+    def test_postion(self):
+        for sample in self.data_samples:
+            latitude, longitude, altitude, imuRoll, imuPitch, imuYaw, motorRoll, motorPitch, motorYaw = sample
+            self.vtp.update_and_calculate(latitude, longitude, altitude, imuRoll, imuPitch, imuYaw, motorRoll, motorPitch, motorYaw)
+            time.sleep(1)
+        avg_D_xy, avg_ground_x, avg_ground_y = self.vtp.get_averages()
+        print("\nAverage Values After 3 Samples:")
+        print(f"Average D_xy: {avg_D_xy}")
+        print(f"Average Ground Target Position: (x={avg_ground_x}, y={avg_ground_y})")
+        
+    def postion(self):
+        for sample in self.data_samples:
+            latitude, longitude, altitude, imuRoll, imuPitch, imuYaw, motorRoll, motorPitch, motorYaw = sample
+            self.vtp.update_and_calculate(latitude, longitude, altitude, imuRoll, imuPitch, imuYaw, motorRoll, motorPitch, motorYaw)
+
+        avg_D_xy, avg_ground_x, avg_ground_y = self.vtp.get_averages()
+        print("\nAverage Values After 3 Samples:")
+        print(f"Average D_xy: {avg_D_xy}")
+        print(f"Average Ground Target Position: (x={avg_ground_x}, y={avg_ground_y})")
+        
 def main():
-    vtp = VerticalTargetPositioningWithAveraging()
+    rclpy.init()
+    taskNode = TimerTask()
+    rclpy.spin(taskNode)
 
-    data_samples = [
-        (30.0, 120.0, 100.0, 10.0, 20.0, 30.0, 5.0, 10.0, 15.0),
-        (31.0, 121.0, 95.0, 12.0, 22.0, 32.0, 7.0, 12.0, 17.0),
-        (32.0, 122.0, 90.0, 14.0, 24.0, 34.0, 9.0, 14.0, 19.0)
-    ]
-
-    for sample in data_samples:
-        latitude, longitude, altitude, imuRoll, imuPitch, imuYaw, motorRoll, motorPitch, motorYaw = sample
-        vtp.update_and_calculate(latitude, longitude, altitude, imuRoll, imuPitch, imuYaw, motorRoll, motorPitch, motorYaw)
-
-    avg_D_xy, avg_ground_x, avg_ground_y = vtp.get_averages()
-    print("\nAverage Values After 3 Samples:")
-    print(f"Average D_xy: {avg_D_xy}")
-    print(f"Average Ground Target Position: (x={avg_ground_x}, y={avg_ground_y})")
 
 if __name__ == "__main__":
     main()
