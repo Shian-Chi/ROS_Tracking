@@ -71,9 +71,9 @@ class MinimalSubscriber(Node):
         self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         # self.gimbalRemove = self.create_subscription(GimbalDegree, "gimDeg", self.gimAngDegcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.distance = self.create_subscription(Lidar, "lidar", self.lidarcb, 10)
-        self.bboxPredcd = self.create_subscription(Bbox, 'bbox', self.bboxcb, 10)
-        self.motorcb = self.create_subscription(MotorInfo, 'motor_info', self.motorInfocb, 10)
+        self.distance = self.create_subscription(Lidar, "lidar", self.lidarcb, 1)
+        self.bboxPredcd = self.create_subscription(Bbox, 'bbox', self.bboxcb, 1)
+        self.motorcb = self.create_subscription(MotorInfo, 'motor_info', self.motorInfocb, 1)
         
         self.hold = False
         
@@ -155,12 +155,12 @@ class MinimalPublisher(Node):
     def __init__(self):
         super().__init__("minimal_publisher")
         # Img publish
-        self.imgPublish = self.create_publisher(Img, "img", 10)
+        self.imgPublish = self.create_publisher(Img, "img", 0)
         img_timer_period = 1/25
         self.img_timer = self.create_timer(img_timer_period, self.img_callback)
         
         # Bbox publish
-        self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
+        self.bboxPublish = self.create_publisher(Bbox, "bbox", 0)
         bbox_timer_period = 1/25
         self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
         
@@ -230,7 +230,7 @@ def detection_hold_count():
     status = False
 
     def inner_detection(stat):
-        nonlocal count, status  # 使用外層變數
+        nonlocal count, status  # Use outer variables
         if stat:
             count += 1
         else:
@@ -238,10 +238,9 @@ def detection_hold_count():
         status = count >= 4
         return status
 
-    # 包裝並返回 inner_detection，並將 count 和 status 作為屬性綁定
     wrapped_function = partial(inner_detection)
-    wrapped_function.count = lambda: count  # 用 lambda 獲取 count 值
-    wrapped_function.status = lambda: status  # 用 lambda 獲取 status 值
+    wrapped_function.count = lambda: count
+    wrapped_function.status = lambda: status 
     return wrapped_function
 
 isContinuous = detection_hold_count()
