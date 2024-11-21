@@ -68,10 +68,6 @@ def signal_handler(sig, frame):
     sys.exit(0)
     
 
-def radian_conv_degree(Radian):
-    return ((Radian / math.pi) * 180)
-
-
 def writeToFile(filename, data):
     try:
         with open(filename, 'a') as file:
@@ -132,9 +128,9 @@ class MinimalSubscriber(Node):
                                            msg.orientation.x,
                                            msg.orientation.y,
                                            msg.orientation.z])
-        self.drone_pithch = radian_conv_degree(ned_euler_data[0])
-        self.drone_roll = radian_conv_degree(ned_euler_data[1])
-        self.drone_yaw = radian_conv_degree(ned_euler_data[2])
+        self.drone_pithch = math.degrees(ned_euler_data[0])
+        self.drone_roll = math.degrees(ned_euler_data[1])
+        self.drone_yaw = math.degrees(ned_euler_data[2])
 
     def lidarcb(self, msg):
         self.discm = msg.distance_cm
