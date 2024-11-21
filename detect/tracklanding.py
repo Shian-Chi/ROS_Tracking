@@ -68,10 +68,6 @@ def signal_handler(sig, frame):
     sys.exit(0)
     
 
-def radian_conv_degree(Radian):
-    return ((Radian / math.pi) * 180)
-
-
 def writeToFile(filename, data):
     try:
         with open(filename, 'a') as file:
@@ -90,9 +86,9 @@ class MinimalSubscriber(Node):
         self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         # self.gimbalRemove = self.create_subscription(GimbalDegree, "gimDeg", self.gimAngDegcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.distance = self.create_subscription(Lidar, "lidar", self.lidarcb, 10)
-        self.bboxPredcd = self.create_subscription(Bbox, 'bbox', self.bboxcb, 10)
-        self.motorcb = self.create_subscription(MotorInfo, 'motor_info', self.motorInfocb, 10)
+        self.distance = self.create_subscription(Lidar, "lidar", self.lidarcb, 1)
+        self.bboxPredcd = self.create_subscription(Bbox, 'bbox', self.bboxcb, 1)
+        self.motorcb = self.create_subscription(MotorInfo, 'motor_info', self.motorInfocb, 1)
         
         self.hold = False
         self.latitude = 0.0
@@ -132,9 +128,9 @@ class MinimalSubscriber(Node):
                                            msg.orientation.x,
                                            msg.orientation.y,
                                            msg.orientation.z])
-        self.drone_pithch = radian_conv_degree(ned_euler_data[0])
-        self.drone_roll = radian_conv_degree(ned_euler_data[1])
-        self.drone_yaw = radian_conv_degree(ned_euler_data[2])
+        self.drone_pithch = math.degrees(ned_euler_data[0])
+        self.drone_roll = math.degrees(ned_euler_data[1])
+        self.drone_yaw = math.degrees(ned_euler_data[2])
 
     def lidarcb(self, msg):
         self.discm = msg.distance_cm
@@ -164,12 +160,12 @@ class MinimalPublisher(Node):
     def __init__(self):
         super().__init__("minimal_publisher")
         # Img publish
-        self.imgPublish = self.create_publisher(Img, "img", 10)
+        self.imgPublish = self.create_publisher(Img, "img", 0)
         img_timer_period = 1/25
         self.img_timer = self.create_timer(img_timer_period, self.img_callback)
         
         # Bbox publish
-        self.bboxPublish = self.create_publisher(Bbox, "bbox", 10)
+        self.bboxPublish = self.create_publisher(Bbox, "bbox", 0)
         bbox_timer_period = 1/25
         self.img_timer = self.create_timer(bbox_timer_period, self.bbox_callback)
         
