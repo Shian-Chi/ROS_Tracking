@@ -26,7 +26,7 @@ def writeData(path:str, data):
 
 # Format time (format: year, month, day, hour, minute, second)
 formatted_time = dt_taipei.strftime('%Y_%m%d_%H%M%S')
-
+txt_path = f"/home/ubuntu/torch_v2/yolo_tracking_v2/lidar/distances_{formatted_time}.txt"
 class LidarPublisher(Node):
     def __init__(self):
         super().__init__('lidar_publisher')
@@ -34,7 +34,7 @@ class LidarPublisher(Node):
         self.timer = self.create_timer(0.1, self.publish_distance)  # 10Hz
         self.bus = smbus2.SMBus(8)  # I2C Bus number may vary
         self.lidar_address = 0x62
-        self.path = f"/home/ubuntu/yolo/yolo_tracking_v2/lidar/distances_{formatted_time}.txt"
+        self.path = txt_path
         self.count = 0
         
     def publish_distance(self):
