@@ -52,9 +52,13 @@ def getGimbalEncoders():
 class GimbalTimerTask(Node):
     def __init__(self, sub):
         super().__init__('gimbal_timer_task')
-        motorInitPositions(yaw, 80.0)
+        motorInitPositions(yaw, 0.0)
         time.sleep(1)
-        motorInitPositions(pitch, 70.0)
+        motorInitPositions(pitch, 60.0)
+
+        self.error_range = 0.15 # %
+        self.width_error_range = para.video_width * self.error_range
+        self.height_error_range = para.video_height * self.error_range
         if sub is not None:
             self.sub_para = sub
         else:
@@ -72,31 +76,25 @@ class GimbalTimerTask(Node):
 
         self.motorInfo = MotorInfo()
         
-        self.bbox_center = False
+        self.center_status = False
         self.l_xyxy = [0, 0, 0, 0]
         self.pitchEncoder, self.yawEncoder = 0, 0
         self.pitchAngle, self.yawAngle = 0.0, 0.0
-
+        
     def gimdal_ctrl(self):
-        m_flag1 = m_flag2 = False  # Ensure flags are initialized
+        is_center = False
+        err = [0, 0]
         if self.sub_para.detect:
             xyxy = list(self.sub_para.get_bbox())
 
             x, y = (xyxy[0] + xyxy[2]) / 2, (xyxy[1] + xyxy[3]) / 2
-            pidErr = pid.pid_run(x, y)
+            pid_output, err = pid.pid_run(x, y)
             # Motor rotation
-            if abs(pidErr[0]) != 0:
-                yaw.incrementTurnVal(int(pidErr[0] * 100))
-            else:
-                m_flag1 = True
-
-            if abs(pidErr[1]) != 0:
-                pitch.incrementTurnVal(int(pidErr[1] * 100))
-            else:
-                m_flag2 = True
-
-        self.bbox_center = m_flag1 and m_flag2
-            
+            yaw.incrementTurnVal(int(pid_output[0] * 100))
+            pitch.incrementTurnVal(int(pid_output[1] * 100))
+        
+        self.center_status = err[0] <= self.width_error_range and err[1] <= self.height_error_range
+                    
 
     def motor_callback(self):
         _, yawData = yaw.getEncoder()
@@ -107,7 +105,7 @@ class GimbalTimerTask(Node):
         pA, yA = pitchData / para.uintDegreeEncoder, yawData / para.uintDegreeEncoder
         self.motorInfo.pitch_angle = pA
         self.motorInfo.yaw_angle = yA
-        print(f"center: {self.bbox_center}\nyaw angle: {yA:.2f}, pitch angle: {pA:.2f}\n")
+        # print(f"center: {self.center_status}\nyaw angle: {yA:.2f}, pitch angle: {pA:.2f}\n")
         self.motorInfoPublish.publish(self.motorInfo)
         
 def spinThread(sub, task):
