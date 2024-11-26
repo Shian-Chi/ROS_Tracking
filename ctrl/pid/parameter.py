@@ -32,6 +32,9 @@ class Parameters():
     UHD_Width = 3280
     UHD_Height = 2464
 
+    video_width = HD_Width
+    video_height = HD_Height
+    
     CMOS_SIZE = 4.60  # mm
     Focal_Length = 2.96  # mm
     horizontal_FOV = 77.0
