@@ -86,9 +86,9 @@ class MinimalSubscriber(Node):
         self.imuSub = self.create_subscription(Imu, "mavros/imu/data", self.IMUcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.holdSub = self.create_subscription(Img, "img", self.holdcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
         # self.gimbalRemove = self.create_subscription(GimbalDegree, "gimDeg", self.gimAngDegcb, QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        self.distance = self.create_subscription(Lidar, "lidar", self.lidarcb, 1)
-        self.bboxPredcd = self.create_subscription(Bbox, 'bbox', self.bboxcb, 1)
-        self.motorcb = self.create_subscription(MotorInfo, 'motor_info', self.motorInfocb, 1)
+        self.distance = self.create_subscription(Lidar, "lidar", self.lidarcb, 10)
+        self.bboxPredcd = self.create_subscription(Bbox, 'bbox', self.bboxcb, 10)
+        self.motorcb = self.create_subscription(MotorInfo, 'motor_info', self.motorInfocb, 10)
         
         self.hold = False
         self.latitude = 0.0
@@ -173,7 +173,7 @@ class MinimalPublisher(Node):
         self.bbox = Bbox()
         
     def img_callback(self):
-        pub_img['camera_center'] = gimbalTask.bbox_center
+        pub_img['camera_center'] = gimbalTask.center_status
         pub_img['motor_pitch'] = pub_img['motor_pitch'] + ROS_Sub.drone_pitch
         pub_img['motor_yaw'] = pub_img['motor_yaw']
         self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
@@ -384,7 +384,7 @@ def main(args=None):
     # Data source path
     img_size = 640                                                              # Image size for inference
     conf_thres = 0.4                                                            # Object confidence threshold
-    iou_thres = 0.3                                                             # IOU threshold for NMS
+    iou_thres = 0.35                                                            # IOU threshold for NMS
     device = '0'                                                                # Device to run the inference on, '' for auto-select
     view_img = not True                                                         # Whether to display images during processing
     # Specific classes to detect, None means detect all classes
