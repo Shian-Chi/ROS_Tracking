@@ -6,9 +6,9 @@
 # Boot service
 nohup.out
 /root
-.swp
+*.swp
 nohup.out
-.bash.swp
+*.bash.swp
 
 # Bash
 *sh
