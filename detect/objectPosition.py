@@ -44,8 +44,7 @@ pub_bbox = {
 
 
 para = Parameters()
-yoloPara = YOLO_parameter
-detector = YoloDetector(*yoloPara)
+
 
 def signal_handler(sig, frame):
     global yaw, pitch, executor
@@ -258,27 +257,8 @@ def main(args=None):
     ROS_spin.start()
     
     # YOLO
-    # Settings directly specified here
-    weights = 'landpad20240522.pt'                                              # Model weights file path
-    source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/video_feed'    # Data source path
-    # Data source path
-    img_size = 640                                                              # Image size for inference
-    conf_thres = 0.3                                                            # Object confidence threshold
-    iou_thres = 0.45                                                             # IOU threshold for NMS
-    device = '0'                                                                # Device to run the inference on, '' for auto-select
-    view_img = not True                                                         # Whether to display images during processing
-    # Specific classes to detect, None means detect all classes
-    classes = None
-    agnostic_nms = False                                                        # Apply class-agnostic NMS
-    augment = False                                                             # Augmented inference
-    no_trace = False                                                            # Don't trace the model for optimizations
-    # Call the detect function with all the specified settings
-    
-    with torch.no_grad():
-        detect(weights, source, img_size, conf_thres, iou_thres, device, view_img,
-               classes, agnostic_nms, augment, no_trace)
-    
-
+    yoloPara = YOLO_parameter
+    detector = YoloDetector(*yoloPara)
 
 if __name__ == '__main__':
     main()
