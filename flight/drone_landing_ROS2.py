@@ -690,7 +690,7 @@ if __name__ == '__main__':
     #global posLocal
 
     freq = 50 #publish發佈頻率
-    takeoffAltitude = 5.0 #無人機起飛高度
+    takeoffAltitude = 20.0 #無人機起飛高度
 
     rclpy.init()
 
@@ -735,7 +735,7 @@ if __name__ == '__main__':
                     #如果成功辨識到目標，機頭開使與雲台鏡頭方向對齊
                     if result == True:
                         temp_yaw = droneSub.motor_yaw
-                        fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, 10.0, temp_yaw)
+                        fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, 20.0, temp_yaw)
                     
                         #向前飛，使得雲台的Pitch垂直於目標
                         drone_moving_along_the_x(dronePub, droneSub, origin_heading)
