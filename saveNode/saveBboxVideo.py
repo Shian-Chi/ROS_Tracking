@@ -12,7 +12,7 @@ import signal
 from tutorial_interfaces.msg import Bbox  
 
 # 隨機生成 RTSP 地址
-rtspAddress = 'rtsp://127.0.0.' + str(np.random.randint(0, 256)) + ':8080/test'
+rtspAddress = 'rtsp://127.0.0.' + str(np.random.randint(0, 256)) + ':8080/video_feed'
 
 frame_queue = queue.Queue(10)
 stop_stream = False
