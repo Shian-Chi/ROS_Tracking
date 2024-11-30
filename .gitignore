@@ -36,6 +36,7 @@ lidar/*.txt
 *.HEIC
 *.mp4
 *.mov
+*.mkv
 *.MOV
 *.avi
 *.data
