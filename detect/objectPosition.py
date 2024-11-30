@@ -167,7 +167,7 @@ class MinimalPublisher(Node):
         self.bbox = Bbox()
         
     def img_callback(self):
-        pub_img['camera_center'] = gimbalTask.bbox_center
+        pub_img['camera_center'] = gimbalTask.center_status
         pub_img['motor_pitch'] = pub_img['motor_pitch'] + ROS_Sub.drone_pitch
         pub_img['motor_yaw'] = pub_img['motor_yaw']
         self.img.detect, self.img.camera_center, self.img.motor_pitch, self.img.motor_yaw, \
