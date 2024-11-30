@@ -67,6 +67,7 @@ class DroneSubscribeNode(Node):
         #prevent unused variable warning
         self.AltitudeSub
 
+        self.detect = False
         self.first_detect = False
         self.second_detect = False
         self.third_detect = False
