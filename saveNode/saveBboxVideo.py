@@ -11,8 +11,8 @@ import sys
 import signal
 from tutorial_interfaces.msg import Bbox  
 
-# 隨機生成 RTSP 地址
-rtspAddress = 'rtsp://127.0.0.' + str(np.random.randint(0, 256)) + ':8080/test'
+# Randomly generate RTSP addresses
+rtspAddress = 'rtsp://127.0.0.' + str(np.random.randint(0, 256)) + ':8080/video_feed'
 
 frame_queue = queue.Queue(10)
 stop_stream = False
@@ -26,7 +26,7 @@ def stream(frame_queue):
             frame_queue.put(image)
     vidCap.release()
 
-# 信號處理函數
+# signal processing function
 def signal_handler(sig, frame):
     global stop_stream
     stop_stream = True
@@ -38,10 +38,12 @@ class MinimalSubscriber(Node):
     def __init__(self):
         super().__init__("bbox_subscriber")
         self.bboxSub = self.create_subscription(Bbox, "bbox", self.bbox_callback, 10)
+        self.detect = False
         self.top_left = []
         self.bottom_right = []
 
     def bbox_callback(self, msg):
+        self.detect = msg.detect
         self.top_left = [msg.x0, msg.y0]
         self.bottom_right = [msg.x1, msg.y1]
 
@@ -61,17 +63,19 @@ class TimerNode(Node):
         if not frame_queue.empty():
             frame = frame_queue.get()
 
-            # 初始化影片存儲
+            # Initialize movie storage
             if self.out is None:
                 self.setup_video_writer(frame)
 
-            # 繪製 BBox
+            # Draw BBox
             top_left = tuple(self.sub.top_left)
             bottom_right = tuple(self.sub.bottom_right)
-            if top_left and bottom_right:
+            if top_left and bottom_right and self.sub.detect:
                 cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 2)
+                # Write image
+                cv2.imwrite('output.jpg', frame)
 
-            # 寫入影片
+            # Write video
             self.out.write(frame)
 
     def destroy_node(self):
