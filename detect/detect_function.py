@@ -1,4 +1,4 @@
-import time
+import time, sys, signal
 import torch
 import torch.backends.cudnn as cudnn
 import numpy as np
@@ -6,24 +6,37 @@ from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
 from utils.general import check_img_size, non_max_suppression, set_logging
 from utils.torch_utils import select_device
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List, Optional, Any
+
+
+def signal_handler(sig, frame):
+    print('Signal detected, shutting down gracefully')
+    sys.exit(0)
 
 
 @dataclass
 class YoloParameters:
     weights: str
     source: str
-    img_size: int
-    conf_thres: float
-    iou_thres: float
-    device: str
-    classes: None
-    agnostic_nms: bool
-    augment: bool
-    
+    img_size: int = 640
+    conf_thres: float = 0.25
+    iou_thres: float = 0.45
+    device: str = ''
+    classes: Optional[List[int]] = None
+    save_img: bool = True
+    agnostic_nms: bool = False
+    augment: bool = False
+
+@dataclass
+class YOLO_Dataset:
+    path: str
+    img: np.ndarray = field(default_factory=lambda: np.array([]))
+    im0s: np.ndarray = field(default_factory=lambda: np.array([]))
+    vid_cap: Optional[Any] = None
 
 class YoloDetector:
-    def __init__(self, weights, source, img_size, conf_thres, iou_thres, device, classes=None, agnostic_nms=False, augment=False):
+    def __init__(self, weights, source, img_size, conf_thres, iou_thres, device, classes=None, save_img=True, agnostic_nms=False, augment=False):
         self.weights = weights
         self.source = source
         self.img_size = img_size
@@ -31,6 +44,7 @@ class YoloDetector:
         self.iou_thres = iou_thres
         self.device = select_device(device)
         self.classes = classes
+        self.save_img = save_img
         self.agnostic_nms = agnostic_nms
         self.augment = augment
         self.model, self.stride, self.imgsz = self.load_model()
@@ -49,9 +63,9 @@ class YoloDetector:
         webcam = self.source.isnumeric() or self.source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
         if webcam:
             cudnn.benchmark = True  # set True to speed up constant image size inference
-            dataset = LoadStreams(self.source, self.img_size, self.stride)
+            dataset = LoadStreams(self.source, img_size=self.imgsz, stride=self.stride)
         else:
-            dataset = LoadImages(self.source, self.img_size, self.stride)
+            dataset = LoadImages(self.source, img_size=self.imgsz, stride=self.stride)
         return dataset
 
     def predict(self, img):
@@ -72,12 +86,12 @@ class YoloDetector:
 
     def run(self):
         set_logging()
-        dataset = self.load_data()
+        self.dataset = self.load_data()
 
         if self.device.type != 'cpu':
             self.model(torch.zeros(1, 3, self.imgsz, self.imgsz).to(self.device).type_as(next(self.model.parameters())))
 
-        for _, img, _, _ in dataset:
+        for path, img, im0s, vid_cap in self.dataset:
             pred, t1, t2, t3 = self.predict(img)
             self.display_prediction(pred, t1, t2, t3)
 
@@ -88,44 +102,37 @@ class YoloDetector:
                 for c in det[:, -1].unique():
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += f"{n} {self.names[int(c)]}{'s' * (n > 1)}, "
-        inferenceTime = 1E3 * (t2 - t1)
-        NMS_Time = (1E3 * (t3 - t2))
-        print(f'{s}Done. ({inferenceTime:.1f}ms) Inference, ({NMS_Time:.1f}ms) NMS, {(1E3/inferenceTime+NMS_Time)}FPS')
+        inference_time = (t2 - t1) * 1E3 
+        nms_time = (t3 - t2) * 1E3
+        total_time = (t3 - t1)
+        fps = 1 / total_time if total_time > 0 else float('inf')
+        print(f'{s}Done. ({inference_time:.1f}ms) Inference, ({nms_time:.1f}ms) NMS, {fps:.2f} FPS')
 
-
-def YOLO_parameter() -> YoloParameters:
-    # YOLO Settings
-    weights = 'landpad20240522.pt'
-    source = 'rtsp://127.0.0.' + str(np.random.randint(1, 256)) + ':8080/video_feed'
-    img_size = 480
-    conf_thres = 0.3
-    iou_thres = 0.45
-    device = '0'
-    classes = None
-    agnostic_nms = False
-    augment = False
-    return YoloParameters(weights, source, img_size, conf_thres, iou_thres, device, classes, agnostic_nms, augment)
-
+def YOLO_parameter(weights="yolov7.pt", source='0', img_size=640, conf_thres=0.25, iou_thres=0.45,
+                   device='', classes=None, save_img=True, agnostic_nms=False, augment=False) -> YoloParameters:
+    return YoloParameters(weights, source, img_size, conf_thres, iou_thres, device, classes, save_img, agnostic_nms, augment)
 
 def runDetection(para: YoloParameters):
     detector = YoloDetector(
-        para.weights,
-        para.source,
-        para.img_size,
-        para.conf_thres,
-        para.iou_thres,
-        para.device,
-        para.classes,
-        para.agnostic_nms,
-        para.augment
+        weights=para.weights,
+        source=para.source,
+        img_size=para.img_size,
+        conf_thres=para.conf_thres,
+        iou_thres=para.iou_thres,
+        device=para.device,
+        classes=para.classes,
+        save_img=para.save_img,
+        agnostic_nms=para.agnostic_nms,
+        augment=para.augment
     )
     detector.run()
 
-
 def main():
-    yoloPara = YOLO_parameter()
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    rtspUrl = 'rtsp://127.0.0.' + str(np.random.randint(1, 256)) + ':8080/video_feed'
+    yoloPara = YOLO_parameter(weights="20241127.pt", source=rtspUrl,img_size=640)
     runDetection(yoloPara)
-
 
 if __name__ == '__main__':
     main()
