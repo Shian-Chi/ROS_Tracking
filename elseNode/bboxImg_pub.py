@@ -12,7 +12,9 @@ import signal
 from tutorial_interfaces.msg import Bbox  
 
 # 使用隨機生成的 rtspAddress
-rtspAddress = 'rtsp://127.0.0.' + str(np.random.randint(0, 256)) + ':8080/test'
+rtspAddress = 'rtsp://140.131.13.133:8080/video_feed'
+
+bridge = CvBridge() # OpenCV圖像與ROS圖像之間的轉換器
 
 # 設置全局影像框和 bbox 參數
 frame = queue.Queue(10)
@@ -49,16 +51,13 @@ def signal_handler(sig, frame):
     rclpy.shutdown()
     sys.exit(0)
 
-class MinimalPublisher(Node):
+class MinimalTasks(Node):
     def __init__(self):
-        super().__init__("bboxImg_publisher")
-        self.publisher_ = self.create_publisher(Image, "image", 10)  # 创建影像发布者
-        t = 1/60
-        self.timer = self.create_timer(t, self.bboxImg_callback)  # 每0.1秒发布一次图像
-        self.bridge = CvBridge()  # OpenCV图像与ROS图像之间的转换器
-        
+        CV_time = 1/30
+        self.CV_timer = self.create_timer(CV_time, self.bboxImg_callback)  # 每0.033秒發布一次圖像
+
     def bboxImg_callback(self):
-        if frame.full():
+        if not frame.empty():
             # 從 queue 中取出影像
             image = frame.get()
 
@@ -67,8 +66,29 @@ class MinimalPublisher(Node):
             bottom_right = tuple(bbox_coords['bottom_right'])
             cv2.rectangle(image, top_left, bottom_right, (0, 255, 0), 2)  # 綠色框
 
-            # 将OpenCV图像转换为ROS图像消息
-            ros_image = self.bridge.cv2_to_imgmsg(image, "bgr8")
+            # 將OpenCV圖像轉換為ROS圖像消息
+            cv2.imshow('live', frame)
+            cv2.waitKey(1)
+    
+class MinimalPublisher(Node):
+    def __init__(self):
+        super().__init__("bboxImg_publisher")
+        self.publisher_ = self.create_publisher(Image, "image", 10)  # 創建影像發布者
+        t = 1/60
+        self.timer = self.create_timer(t, self.bboxImg_callback)  # 每0.1秒發布一次圖像
+        
+    def bboxImg_callback(self):
+        if not frame.empty():
+            # 從 queue 中取出影像
+            image = frame.get()
+
+            # 獲取當前 bbox 座標，並在影像上畫出矩形框
+            top_left = tuple(bbox_coords['top_left'])
+            bottom_right = tuple(bbox_coords['bottom_right'])
+            cv2.rectangle(image, top_left, bottom_right, (0, 255, 0), 2)  # 綠色框
+
+            # 將OpenCV圖像轉換為ROS圖像消息
+            ros_image = bridge.cv2_to_imgmsg(image, "bgr8")
             self.publisher_.publish(ros_image)
             self.get_logger().info('Publishing image with bbox')
 
@@ -95,11 +115,13 @@ def main(args=None):
     global ROS_Sub, ROS_Pub
     ROS_Sub = MinimalSubscriber()
     ROS_Pub = MinimalPublisher()
-
+    tasks = MinimalTasks()
+    
     # 使用 MultiThreadedExecutor 同時處理多個節點
     executor = MultiThreadedExecutor()
+    executor.add_node(tasks)
     executor.add_node(ROS_Sub)
-    executor.add_node(ROS_Pub)
+    # executor.add_node(ROS_Pub)
 
     # 初始化 RTSP 串流讀取的執行緒
     streamthrd = thrd.Thread(target=stream, args=(frame,)) 
