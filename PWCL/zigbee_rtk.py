@@ -8,7 +8,7 @@ zig_bee_data=[None]*64                          #存取RTCM資料的陣列
 
 #serial_in (xbee端)
 ser_in = serial.Serial()
-ser_in.port = "/dev/ttyttyXbee"
+ser_in.port = "/dev/ttyXbee"
 ser_in.baudrate = 115200
 ser_in.bytesize = serial.EIGHTBITS                  #number of bits per bytes
 ser_in.parity = serial.PARITY_NONE                  #set parity check
