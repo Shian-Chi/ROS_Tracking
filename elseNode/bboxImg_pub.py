@@ -53,7 +53,7 @@ def signal_handler(sig, frame):
 
 class MinimalTasks(Node):
     def __init__(self):
-        super().__init__("BboxImg Tasks")
+        super().__init__("BboxImg_Tasks")
         CV_time = 1/30
         self.CV_timer = self.create_timer(CV_time, self.bboxImg_callback)  # 每0.033秒發布一次圖像
 
