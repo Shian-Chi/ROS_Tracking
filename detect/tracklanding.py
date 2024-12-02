@@ -382,7 +382,7 @@ def main(args=None):
     weights = 'landpad20240522.pt'                                              # Model weights file path
     source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/video_feed'    # Data source path
     # Data source path
-    img_size = 640                                                              # Image size for inference
+    img_size = 320                                                              # Image size for inference
     conf_thres = 0.4                                                            # Object confidence threshold
     iou_thres = 0.35                                                            # IOU threshold for NMS
     device = '0'                                                                # Device to run the inference on, '' for auto-select
