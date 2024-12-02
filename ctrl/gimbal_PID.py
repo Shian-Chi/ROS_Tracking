@@ -54,7 +54,7 @@ class GimbalTimerTask(Node):
         super().__init__('gimbal_timer_task')
         motorInitPositions(yaw, 0.0)
         time.sleep(1)
-        motorInitPositions(pitch, 10.0)
+        motorInitPositions(pitch, 50.0)
 
         self.error_range = 0.15 # %
         self.width_error_range = para.video_width * self.error_range
