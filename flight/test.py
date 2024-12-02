@@ -642,27 +642,26 @@ def signal_handler(signal, frame):
     print("\nprogram exiting gracefully")
     rclpy.shutdown()
     sys.exit(0)
-    
 
 def landing_process(dronePub, droneSub, altitude:float):
     temp_yaw = droneSub.motor_yaw
     print('temp yaw:', temp_yaw)
     
     if temp_yaw > 0:
-        for i in range(temp_yaw//10):
+        for i in range(int(temp_yaw/10)):
             fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, 10)
             time.sleep(0.5)
         fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, temp_yaw % 10.0)
-        while sub.camera_center != True:
+        while droneSub.camera_center != True:
             print("waiting for target center")
             time.sleep(1)
         print('motor yaw is right!')
     if temp_yaw < 0:
-        for i in range(-temp_yaw//10):
+        for i in range(int(-temp_yaw/10)):
             fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, -10)
             time.sleep(0.5)
         fly_to_global_without_detect(dronePub, droneSub, droneSub.latitude, droneSub.longitude, altitude, temp_yaw % 10.0)
-        while sub.camera_center != True:
+        while droneSub.camera_center != True:
             print("waiting for target center")
             time.sleep(1)
         print('motor yaw is right!')
@@ -671,14 +670,12 @@ def landing_process(dronePub, droneSub, altitude:float):
     #向前飛，使得雲台的Pitch垂直於目標
     print('ready to forward')
     drone_moving_along_the_x(dronePub, droneSub, droneSub.heading, altitude)
-    while sub.camera_center != True:
+    while droneSub.camera_center != True:
         print("waiting for target center")
         time.sleep(1)
      
-    print('--------------final_motor_pitch error', droneSub.motor_yaw)
-    			
-    
-
+    print('--------------final_motor_pitch error', droneSub.motor_yaw)    			
+       
 def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, origin_heading, altitude):
 
     origin_heading = origin_heading -90.0
@@ -696,7 +693,7 @@ def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, o
     delta_y = math.sin(theta_radians)
     delta_x = math.cos(theta_radians)
     
-    forward_distance = 20.0*math.tan(math.radians(90 - sub.motor_pitch))
+    forward_distance = 30.0*math.tan(math.radians(90 - sub.motor_pitch))
     print('**********forward_distance**********', forward_distance)
     
     delta_lon = forward_distance*delta_y*(1/101775.45)
@@ -713,7 +710,7 @@ def drone_moving_along_the_x(pub : DronePublishNode, sub : DroneSubscribeNode, o
     
     while sub.camera_center != True:
         print("waiting for target center")
-        ime.sleep(1)
+        time.sleep(1)
 
 #def detection_landing_track(pub : DronePublishNode, sub : DroneSubscribeNode):
 	
@@ -732,7 +729,7 @@ if __name__ == '__main__':
     #global posLocal
 
     freq = 50 #publish發佈頻率
-    takeoffAltitude = 20.0 #無人機起飛高度
+    takeoffAltitude = 30.0 #無人機起飛高度
 
     rclpy.init()
 
@@ -829,12 +826,14 @@ if __name__ == '__main__':
                                 droneState.droneState = 0
                                 temp_status = True
                                 break
-                    if temp_status == False: #如果任務執行到最後都沒有辨識到目標
+                    print('final')
+                    droneCli.requestLand()
+                    '''if temp_status == False: #如果任務執行到最後都沒有辨識到目標
                         print("fly to origin point without detection")
                         fly_to_global_without_detect(dronePub, droneSub, origin_latitude, origin_longitude, drone_point[0][1], 0.0)
                         droneCli.requestLand()
                         droneState.droneState = 0
-                    temp_status = False
+                    temp_status = False'''
                     
                 time.sleep(0.1)
 
