@@ -57,7 +57,7 @@ class TimerNode(Node):
 
     def setup_video_writer(self, frame):
         height, width, _ = frame.shape
-        self.out = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'XVID'), 30, (width, height))
+        self.out = cv2.VideoWriter('/home/ubuntu/torch_v2/yolo_tracking_v2/output.avi', cv2.VideoWriter_fourcc(*'XVID'), 30, (width, height))
 
     def process_frame(self):
         if not frame_queue.empty():
