@@ -358,7 +358,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             else:
                 pub_img['detect'] = pub_bbox['detect'] = False
                 
-            if max_xyxy is not None:
+            if max_xyxy is not None and detect_status:
                 Update_pub_bbox(detect_status, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
             else:
                 Update_pub_bbox(False, 0, 0.0, 1280, 720)
