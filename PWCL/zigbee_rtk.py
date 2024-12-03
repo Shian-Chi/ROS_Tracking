@@ -15,7 +15,7 @@ ser_in.parity = serial.PARITY_NONE                  #set parity check
 ser_in.stopbits = serial.STOPBITS_ONE               #number of stop bits
 ser_in.timeout = 0.2
 ser_in.open()
-
+print(f"Is {ser_in.port} open: {ser_in.is_open}")
 
 # serial_out (RTK端)
 ser_out = serial.Serial()
@@ -26,6 +26,7 @@ ser_out.parity = serial.PARITY_NONE                 #set parity check
 ser_out.stopbits = serial.STOPBITS_ONE              #number of stop bits
 ser_out.timeout = 0.2
 ser_out.open()
+print(f"Is {ser_out.port} open: {ser_out.is_open}")
 
 
 
