@@ -72,7 +72,7 @@ class GimbalTimerTask(Node):
 
         # Read motor Info
         self.motorInfoPublish = self.create_publisher(MotorInfo, "motor_info", 10)
-        self.motor_timer = self.create_timer(1/10, self.motor_callback)
+        self.motor_timer = self.create_timer(1/20, self.motor_callback)
 
         self.motorInfo = MotorInfo()
         
