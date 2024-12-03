@@ -1,141 +1,79 @@
 import rclpy
 from rclpy.node import Node
-from rclpy.executors import MultiThreadedExecutor
-from sensor_msgs.msg import Image
+from tutorial_interfaces.msg import Bbox
 import cv2
-from cv_bridge import CvBridge
-import numpy as np
-import threading as thrd
-import queue
-import sys
-import signal
-from tutorial_interfaces.msg import Bbox  
 
-# 使用隨機生成的 rtspAddress
-rtspAddress = 'rtsp://140.131.13.133:8080/video_feed'
+class ImageDisplayNode(Node):
+    def __init__(self):
+        super().__init__('image_display_node')
 
-bridge = CvBridge() # OpenCV圖像與ROS圖像之間的轉換器
+        # 訂閱Bbox主題
+        self.subscription = self.create_subscription(
+            Bbox,
+            'bbox',  # 替換為實際的主題名稱
+            self.bbox_callback,
+            10)
+        self.subscription  # 防止未使用變量警告
 
-# 設置全局影像框和 bbox 參數
-frame = queue.Queue(10)
-bbox_coords = {'top_left': [0, 0], 'bottom_right': [0, 0]}
+        # 初始化bbox數據
+        self.bbox_data = None
 
+        # 打開RTSP流
+        self.rtsp_url = 'rtsp://140.131.13.133:8080/video_feed'  # 替換為實際的RTSP URL
+        self.cap = cv2.VideoCapture(self.rtsp_url)
 
-def stream(frame):
-    # 開啟 RTSP 串流
-    vidCap = cv2.VideoCapture(rtspAddress)
-
-    while True:
-        # 從 RTSP 串流讀取一張影像
-        ret, image = vidCap.read()
-        if ret:
-            if not frame.full():
-                frame.put(image)
-                print("Image added to queue")  # Debug 信息
+        if not self.cap.isOpened():
+            self.get_logger().error('無法打開RTSP流')
+            exit(1)
         else:
-            # 若沒有影像跳出迴圈
-            break
+            print("RTSP is opened")
 
-    # 釋放資源
-    vidCap.release()
-
-# 信號處理函數，用於優雅地關閉節點
-def signal_handler(sig, frame):
-    global ROS_Pub, ROS_Sub
-    print('Signal detected, shutting down gracefully...')
-
-    if ROS_Pub is not None:
-        ROS_Pub.destroy_node()
-    if ROS_Sub is not None:
-        ROS_Sub.destroy_node()
-    rclpy.shutdown()
-    sys.exit(0)
-
-class MinimalTasks(Node):
-    def __init__(self):
-        super().__init__("BboxImg_Tasks")
-        CV_time = 1/30
-        self.CV_timer = self.create_timer(CV_time, self.bboxImg_callback)  # 每0.033秒發布一次圖像
-
-    def bboxImg_callback(self):
-        if not frame.empty():
-            # 從 queue 中取出影像
-            image = frame.get()
-
-            # 獲取當前 bbox 座標，並在影像上畫出矩形框
-            top_left = tuple(bbox_coords['top_left'])
-            bottom_right = tuple(bbox_coords['bottom_right'])
-            cv2.rectangle(image, top_left, bottom_right, (0, 255, 0), 2)  # 綠色框
-
-            # 將OpenCV圖像轉換為ROS圖像消息
-            cv2.imshow('live', frame)
-            cv2.waitKey(1)
-    
-class MinimalPublisher(Node):
-    def __init__(self):
-        super().__init__("bboxImg_publisher")
-        self.publisher_ = self.create_publisher(Image, "image", 10)  # 創建影像發布者
-        t = 1/60
-        self.timer = self.create_timer(t, self.bboxImg_callback)  # 每0.1秒發布一次圖像
-        
-    def bboxImg_callback(self):
-        if not frame.empty():
-            # 從 queue 中取出影像
-            image = frame.get()
-
-            # 獲取當前 bbox 座標，並在影像上畫出矩形框
-            top_left = tuple(bbox_coords['top_left'])
-            bottom_right = tuple(bbox_coords['bottom_right'])
-            cv2.rectangle(image, top_left, bottom_right, (0, 255, 0), 2)  # 綠色框
-
-            # 將OpenCV圖像轉換為ROS圖像消息
-            ros_image = bridge.cv2_to_imgmsg(image, "bgr8")
-            self.publisher_.publish(ros_image)
-            self.get_logger().info('Publishing image with bbox')
-
-class MinimalSubscriber(Node):
-    def __init__(self):
-        super().__init__("bbox_subscriber")
-        # 訂閱 bbox topic，並設置回調函數
-        self.bboxSub = self.create_subscription(Bbox, "bbox", self.bboxcb, 5)
-
-    def bboxcb(self, msg):
-        # 更新全局 bbox 座標，將從 topic 接收到的座標存儲到 bbox_coords 中
-        bbox_coords['top_left'] = [msg.x0, msg.y0]
-        bbox_coords['bottom_right'] = [msg.x1, msg.y1]
-        # self.get_logger().info(f"Received bbox with class_id: {msg.class_id}, confidence: {msg.confidence}")
+    def bbox_callback(self, msg):
+        # 存儲接收到的bbox數據
+        self.bbox_data = msg
 
 def main(args=None):
-    # 信號處理器設置，捕獲 SIGINT 和 SIGTERM
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
     rclpy.init(args=args)
+    node = ImageDisplayNode()
 
-    # 初始化 MinimalSubscriber 和 MinimalPublisher 節點
-    global ROS_Sub, ROS_Pub
-    ROS_Sub = MinimalSubscriber()
-    ROS_Pub = MinimalPublisher()
-    tasks = MinimalTasks()
-    
-    # 使用 MultiThreadedExecutor 同時處理多個節點
-    executor = MultiThreadedExecutor()
-    executor.add_node(tasks)
-    executor.add_node(ROS_Sub)
-    # executor.add_node(ROS_Pub)
-
-    # 初始化 RTSP 串流讀取的執行緒
-    streamthrd = thrd.Thread(target=stream, args=(frame,)) 
-    streamthrd.start()
-
-    # 使用 executor 同時處理 MinimalPublisher 和 MinimalSubscriber
     try:
-        executor.spin()
-    finally:
-        ROS_Sub.destroy_node()
-        ROS_Pub.destroy_node()
-        rclpy.shutdown()
+        while rclpy.ok():
+            # 從RTSP流讀取幀
+            ret, frame = node.cap.read()
+            if not ret:
+                node.get_logger().error('無法從RTSP流讀取幀')
+                break
 
+            # 如果有bbox數據，繪制邊界框
+            if node.bbox_data and node.bbox_data.detect:
+                x0 = node.bbox_data.x0
+                y0 = node.bbox_data.y0
+                x1 = node.bbox_data.x1
+                y1 = node.bbox_data.y1
+
+                # 在幀上繪制矩形
+                cv2.rectangle(frame, (x0, y0), (x1, y1), (0, 255, 0), 2)
+
+                # 可選地，在框上方顯示類別ID和置信度
+                label = f'ID: {node.bbox_data.class_id}, Conf: {node.bbox_data.confidence:.2f}'
+                cv2.putText(frame, label, (x0, y0 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+            # 顯示圖像
+            cv2.imshow('RTSP Stream with Bbox', frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+            # 處理ROS2回調
+            rclpy.spin_once(node, timeout_sec=0)
+
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.cap.release()
+        cv2.destroyAllWindows()
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
