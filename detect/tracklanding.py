@@ -337,10 +337,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                 for *xyxy, conf, cls in reversed(det):
                     if conf > max_conf:
                         max_conf, max_xyxy = conf, xyxy
-                    
-                    if view_img:  # Add bbox to image
-                        label = f'{names[int(cls)]} {conf:.2f}'
-                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3) # im0 type: <class 'numpy.ndarray'>
                         
                 # Calculate the distance between the current detection frame and the previous one
                 if previous_xyxy is not None:
@@ -382,9 +378,9 @@ def main(args=None):
     weights = 'landpad20240522.pt'                                              # Model weights file path
     source ='rtsp://127.0.0.' + str(np.random.randint(1,256)) + ':8080/video_feed'    # Data source path
     # Data source path
-    img_size = 320                                                              # Image size for inference
+    img_size = 640                                                              # Image size for inference
     conf_thres = 0.4                                                            # Object confidence threshold
-    iou_thres = 0.35                                                            # IOU threshold for NMS
+    iou_thres = 0.3                                                             # IOU threshold for NMS
     device = '0'                                                                # Device to run the inference on, '' for auto-select
     view_img = not True                                                         # Whether to display images during processing
     # Specific classes to detect, None means detect all classes
