@@ -1,5 +1,8 @@
 #!/bin/bash
 echo "123456789" | sudo -S chmod 777 "/dev/ttyTHS0"
+echo "123456789" | sudo -S chmod 777 "/dev/ttyXbee"
+echo "123456789" | sudo -S chmod 777 "/dev/ttyRTK"
+
 echo "123456789" | sudo -S i2cdetect -y 8
 
 #if [ -e "/dev/ttyUSB0" ]; then 
