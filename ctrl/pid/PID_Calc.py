@@ -1,10 +1,9 @@
 from ctrl.pid.parameter import Parameters
 para = Parameters()
 
-
 class PID_Ctrl():
     def __init__(self):
-        self.kp = 0.0063
+        self.kp = 0.0064
         self.ki = 0.000037
         self.kd = 0.000000015
         self.setpoint = [para.video_width/2, para.video_height/2]
