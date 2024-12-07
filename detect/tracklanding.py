@@ -75,7 +75,7 @@ def signal_handler(sig, frame):
     executor.shutdown()
     rclpy.shutdown()
     sys.exit(0)
-    
+
 
 rclpy.init(args=None)
 
