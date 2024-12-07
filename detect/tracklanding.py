@@ -17,8 +17,8 @@ import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from ctrl.gimbal_PID import GimbalTimerTask, yaw, pitch
-from ctrl.pid.parameter import Parameters
-
+from parameter import Parameters
+from utils_funtions import Write, increment_path
 import threading as thrd
 import signal
 import queue, math
