@@ -1,5 +1,7 @@
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from ctrl.pid.motorInit import MotorSet
-from ctrl.pid.parameter import Parameters, hexStr
+from parameter import Parameters, hexStr
 import numpy as np
 import struct
 import time
