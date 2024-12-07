@@ -1,6 +1,6 @@
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from ctrl.pid.parameter import Parameters
+from parameter import Parameters
 para = Parameters()
 
 class PID_Ctrl():
