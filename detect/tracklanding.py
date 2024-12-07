@@ -334,7 +334,7 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         view_img = check_imshow()
     
     cudnn.benchmark = True  # set True to speed up constant image size inference
-    dataset = LoadStreams(source, img_size=imgsz, stride=stride)
+    dataset = LoadCSI(source, img_size=imgsz, stride=stride)
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
