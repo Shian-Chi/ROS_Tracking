@@ -6,7 +6,7 @@ import sys, time
 import signal
 from ctrl.pid.PID_Calc import PID_Ctrl
 from ctrl.pid.motor import motorCtrl, motorInitPositions
-from ctrl.pid.parameter import Parameters
+from parameter import Parameters
 from tutorial_interfaces.msg import Bbox, MotorInfo
 
 pid = PID_Ctrl()
