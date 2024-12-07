@@ -367,16 +367,6 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         # Apply NMS
         pred = non_max_suppression(pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
         t3 = time_synchronized()
-
-
-        # Apply Classifier
-        if classify:
-            pred = apply_classifier(pred, modelc, img, im0s)
-                          
-                          
-        # Apply Classifier
-        if classify:
-            pred = apply_classifier(pred, modelc, img, im0s)
                           
         # Process detections
         global pub_img, pub_bbox
