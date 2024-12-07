@@ -77,14 +77,6 @@ def signal_handler(sig, frame):
     sys.exit(0)
     
 
-def writeToFile(filename, data):
-    try:
-        with open(filename, 'a') as file:
-            file.write(f"{data}\n")
-    except IOError as e:
-        print(f"Failed to write to file: {e}")
-
-
 rclpy.init(args=None)
 
 
