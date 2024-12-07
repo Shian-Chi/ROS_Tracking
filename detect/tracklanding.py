@@ -232,6 +232,83 @@ def bbox_filter(xyxy0, xyxy1):
     dis = math.sqrt(((c1[0] - c0[0])**2) + ((c1[1] - c0[1])**2))
     return dis<=256, dis
         
+        
+class LoadCSI:  # for inference with CSI camera
+    def __init__(self, pipe='0', img_size=640, stride=32, flip_method=0):
+        self.img_size = img_size
+        self.stride = stride
+        self.flip_method = flip_method
+
+        # Check if it's a CSI camera
+        if pipe == 'CSI_Camera':
+            pipe = self.gstreamer_pipeline(flip_method=flip_method)
+        else:
+            raise ValueError("Only 'CSI_Camera' is supported for this class.")
+
+        self.pipe = pipe
+        self.cap = cv2.VideoCapture(pipe, cv2.CAP_GSTREAMER)  # video capture object
+        assert self.cap.isOpened(), f'Failed to open camera with pipeline: {pipe}'
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)  # set buffer size
+
+    @staticmethod
+    def gstreamer_pipeline(
+        sensor_id=0,
+        capture_width=1920,
+        capture_height=1080,
+        display_width=960,
+        display_height=540,
+        framerate=30,
+        flip_method=0,
+    ):
+        return (
+            "nvarguscamerasrc sensor-id=%d ! "
+            "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, framerate=(fraction)%d/1 ! "
+            "nvvidconv flip-method=%d ! "
+            "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
+            "videoconvert ! "
+            "video/x-raw, format=(string)BGR ! appsink"
+            % (
+                sensor_id,
+                capture_width,
+                capture_height,
+                framerate,
+                flip_method,
+                display_width,
+                display_height,
+            )
+        )
+
+    def __iter__(self):
+        self.count = -1
+        return self
+
+    def __next__(self):
+        self.count += 1
+        if cv2.waitKey(1) == ord('q'):  # q to quit
+            self.cap.release()
+            cv2.destroyAllWindows()
+            raise StopIteration
+
+        # Read frame
+        ret_val, img0 = self.cap.read()
+        assert ret_val, f'Camera Error {self.pipe}'
+
+        # Padded resize
+        img = letterbox(img0, self.img_size, stride=self.stride)[0]
+
+        # Convert
+        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+        img = np.ascontiguousarray(img)
+
+        img_path = 'csi_camera.jpg'
+        print(f'csi_camera {self.count}: ', end='')
+
+        return img_path, img, img0, None
+
+    def __len__(self):
+        return 0
+
+  
 
 def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, device='', view_img=False, classes=None, agnostic_nms=False, augment=False, no_trace=False):
     source, weights, view_img, imgsz, trace = source, weights, view_img, img_size, not no_trace
