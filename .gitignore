@@ -1,5 +1,6 @@
 # Python
 drone_PWCL_new.py
+detect/runs/*
 
 # ROS2
 /build
