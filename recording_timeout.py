@@ -3,29 +3,14 @@
 import gi
 import sys
 import os
-from datetime import datetime, timezone, timedelta
 import signal  # 導入 signal 模組
-import ntplib
-
+from utils_funtions import current_network_time
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
 timeout = 30  # 秒
 
-# 創建 NTP 客戶端，嘗試從 NTP 服務器獲取時間
-try:
-    client = ntplib.NTPClient()
-    taipei_timezone = timezone(timedelta(hours=8))
-    response = client.request('pool.ntp.org')
-    dt_utc = datetime.fromtimestamp(response.tx_time, timezone.utc)
-    dt_taipei = dt_utc.astimezone(taipei_timezone)
-except (ntplib.NTPException, OSError) as e:
-    print("Unable to obtain network time, use system time instead")
-    taipei_timezone = timezone(timedelta(hours=8))
-    dt_taipei = datetime.now(taipei_timezone)
 
-# 格式化時間（格式：年月日時分秒）
-formatted_time = dt_taipei.strftime('%Y_%m%d_%H%M%S')
 
 # 初始化GStreamer
 Gst.init(None)
@@ -38,7 +23,7 @@ if not os.path.exists(output_directory):
     os.makedirs(output_directory)
 
 # 建立錄制的輸出文件名模板
-output_file_template = os.path.join(output_directory, f"recorded_{formatted_time}_%04d.mkv")
+output_file_template = os.path.join(output_directory, f"recorded_{current_network_time()}_%04d.mkv")
 
 # 將超時時間從秒轉換為納秒
 max_size_time_ns = int(timeout * 1_000_000_000)  # 秒轉納秒
