@@ -54,8 +54,14 @@ pub_bbox = {
 
 
 para = Parameters()
-log_path = "/home/ubuntu/torch_v2/yolo_tracking_v2/detect/runs/detect"
+# Define the logging path
+log_path = "/home/ubuntu/torch_v2/yolo_tracking_v2/detect/runs/"
 log_save_dir = Path(increment_path(Path(log_path) / "exp", exist_ok=False))
+
+# Ensure the directory exists
+log_save_dir.mkdir(parents=True, exist_ok=True)
+
+# Initialize the log writer
 global log
 log = Write(f"{log_save_dir}/detect.txt")
 
