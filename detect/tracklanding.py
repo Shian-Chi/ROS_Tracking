@@ -1,13 +1,12 @@
-import time
+import time, os
 from pathlib import Path
 
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
-# from numpy import random
 import numpy as np
 from models.experimental import attempt_load
-from utils.datasets import LoadStreams, LoadImages
+from utils.datasets import LoadStreams
 from utils.general import check_img_size, check_imshow, non_max_suppression, apply_classifier, \
     scale_coords, set_logging
 from utils.plots import plot_one_box
@@ -15,7 +14,6 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized,
 
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from ctrl.gimbal_PID import GimbalTimerTask, yaw, pitch
 from parameter import Parameters
 from utils_funtions import Write, increment_path
@@ -56,11 +54,16 @@ pub_bbox = {
 
 
 para = Parameters()
+log_path = "/home/ubuntu/torch_v2/yolo_tracking_v2/detect/runs/detect"
+log_save_dir = Path(increment_path(Path(log_path) / "exp", exist_ok=False))
+global log
+log = Write(f"{log_save_dir}/detect.txt")
 
 
 def signal_handler(sig, frame):
-    global yaw, pitch, executor
+    global yaw, pitch, executor, log
     print('Signal detected, shutting down gracefully')
+    log.update_summary()
     yaw.stop()
     pitch.stop()
     executor.shutdown()
@@ -250,6 +253,17 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     if half:
         model.half()  # to FP16
 
+
+    # Second-stage classifier
+    classify = False
+    if classify:
+        modelc = load_classifier(name='resnet101', n=2)  # initialize
+        modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device)['model']).to(device).eval()
+
+    # Set Dataloader
+    vid_path, vid_writer = None, None
+    
+    
     # Second-stage classifier
     classify = False
     if classify:
@@ -261,13 +275,9 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     
     if view_img:
         view_img = check_imshow()
-        view_img = True
     
-    if webcam:
-        cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
-    else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride)
+    cudnn.benchmark = True  # set True to speed up constant image size inference
+    dataset = LoadStreams(source, img_size=imgsz, stride=stride)
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
@@ -276,25 +286,20 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
     # Run inference
     if device.type != 'cpu':
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-    old_img_w = old_img_h = imgsz
-    old_img_b = 1
 
     previous_xyxy = None
     detection_count = 0
     detect_status = False
-    t0 = time.time()
+    effective_detection = False
+    
+    log.write(f"source: {source}\n") # first line
+    
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
-
-        # Warmup
-        if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
-            old_img_b, old_img_h, old_img_w = img.shape[0], img.shape[2], img.shape[3]
-            for i in range(3):
-                model(img, augment=augment)[0]
 
         # Inference
         t1 = time_synchronized()
@@ -306,6 +311,12 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
         pred = non_max_suppression(pred, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
         t3 = time_synchronized()
 
+
+        # Apply Classifier
+        if classify:
+            pred = apply_classifier(pred, modelc, img, im0s)
+                          
+                          
         # Apply Classifier
         if classify:
             pred = apply_classifier(pred, modelc, img, im0s)
@@ -318,10 +329,8 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
             max_conf = -1  # Variable to store the maximum confidence value
             max_xyxy = None  # Variable to store the xyxy with the maximum confidence
             
-            if webcam:  # batch_size >= 1
-                p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
-            else:
-                p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
+            p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
+
 
             p = Path(p)  # to Path
             
@@ -338,31 +347,47 @@ def detect(weights, source, img_size=640, conf_thres=0.25, iou_thres=0.45, devic
                     if conf > max_conf:
                         max_conf, max_xyxy = conf, xyxy
                         
+                    if view_img:  # Add bbox to image
+                        label = f'{names[int(cls)]} {conf:.2f}'
+                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=1)   
+                                             
                 # Calculate the distance between the current detection frame and the previous one
                 if previous_xyxy is not None:
                     # Check whether the previous and next frames are continuous
                     ret, distance = bbox_filter(previous_xyxy, max_xyxy) 
+                    # If the detection box passes the filter (ret is True), increment the detection count
+                    # Otherwise, reset the detection count to 0
                     detection_count = detection_count + 1 if ret else 0
                 else:
                     detection_count = 1
-                
-                detect_status = detection_count >= 4
-                pub_img['detect'] = pub_bbox['detect'] = detect_status
-                
-                previous_xyxy = max_xyxy
-                
+                    
+                detect_status = True
+                effective_detection = detection_count >= 4
+                pub_img['detect'] = pub_bbox['detect'] = effective_detection
+                previous_xyxy = max_xyxy   
             else:
+                detect_status = False
                 pub_img['detect'] = pub_bbox['detect'] = False
-                
-            if max_xyxy is not None and detect_status:
-                Update_pub_bbox(detect_status, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
+            
+            # Print time (inference + NMS) and gimbal Degrees
+            fps = 1E3/((t3-t1)*1E3)
+            print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{fps:.1f}')
+            print(f"Total Pitch Degrees: {pub_img['motor_pitch']:.2f}, yaw Degrees: {pub_img['motor_yaw']:.2f}")
+            
+            # Publish the detection results
+            if max_xyxy is not None and effective_detection:
+                Update_pub_bbox(effective_detection, n, max_conf, max_xyxy[0], max_xyxy[1], max_xyxy[2], max_xyxy[3])
+                effective_detection = f"Name: {names[int(cls)]}, Conf: {max_conf}, Bbox: {max_xyxy}"
             else:
                 Update_pub_bbox(False, 0, 0.0, 1280, 720)
+            
+            # Log the detection results
+            log.log_detection_result(detect_status, detection_count, effective_detection)
+            
+            if view_img:
+                cv2.imshow(str(p), im0)
+                cv2.waitKey(1)  # 1 millisecond
                 
-            # Print time (inference + NMS) and gimbal Degrees
-            print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS, FPS:{1E3/((t3-t1)*1E3):.1f}')
-            print(f"Total Pitch Degrees: {pub_img['motor_pitch']:.2f}, yaw Degrees: {pub_img['motor_yaw']:.2f}")
-        
 def main(args=None):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
