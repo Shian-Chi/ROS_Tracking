@@ -1,13 +1,6 @@
 import numpy as np
 import math
-
-
-def hexStr(response):
-    if response is not None:
-        hex_string = ' '.join(f'{byte:02x}' for byte in response)
-        return hex_string
-    return None
-        
+       
 
 class Parameters():
     pi = math.pi
